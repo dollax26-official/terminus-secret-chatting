@@ -1,9 +1,15 @@
 package com.terminus.secrets;
 
+import android.Manifest;
 import android.app.Activity;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
@@ -12,6 +18,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.net.http.SslError;
 import android.os.Bundle;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.InputType;
@@ -21,6 +28,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.net.http.SslCertificate;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -66,6 +74,8 @@ public class MainActivity extends Activity {
     private static final String PREF_URL = "server_url";
     private static final String PREF_PIN = "pin";
     private static final String PREF_NAME = "server_name";
+    private static final String NOTIFICATION_CHANNEL = "terminus_messages";
+    private static final int NOTIFICATION_PERMISSION_REQUEST = 4701;
 
     private static final int BG = Color.parseColor("#06090E");
     private static final int PANEL = Color.parseColor("#0C121A");
@@ -92,6 +102,7 @@ public class MainActivity extends Activity {
         getWindow().setNavigationBarColor(BG);
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
 
+        createNotificationChannel();
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         serverUrl = prefs.getString(PREF_URL, "");
         pin = prefs.getString(PREF_PIN, "");
@@ -330,12 +341,57 @@ public class MainActivity extends Activity {
         settings.setUserAgentString(settings.getUserAgentString() + " TerminusAndroid/1.0");
 
         webView.setWebViewClient(new ChatWebViewClient(this));
+        webView.addJavascriptInterface(new NativeNotifications(), "TerminusNative");
 
         root.addView(webView, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         setContentView(root);
         webView.loadUrl(serverUrl + "/app/");
+    }
+
+    private void createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(
+                    NOTIFICATION_CHANNEL, "New messages", NotificationManager.IMPORTANCE_DEFAULT);
+            channel.setDescription("Alerts when Terminus Secrets receives a new message.");
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            if (manager != null) manager.createNotificationChannel(channel);
+        }
+    }
+
+    private final class NativeNotifications {
+        @JavascriptInterface
+        public void notifyMessage(String roomName) {
+            final String safeRoom = (roomName == null || roomName.trim().isEmpty())
+                    ? "a channel" : roomName.trim().substring(0, Math.min(48, roomName.trim().length()));
+            runOnUiThread(() -> {
+                if (Build.VERSION.SDK_INT >= 33
+                        && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                        != PackageManager.PERMISSION_GRANTED) {
+                    requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},
+                            NOTIFICATION_PERMISSION_REQUEST);
+                    return;
+                }
+                Intent intent = new Intent(MainActivity.this, MainActivity.class);
+                intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                PendingIntent pending = PendingIntent.getActivity(
+                        MainActivity.this, 0, intent,
+                        PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+                Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                        ? new Notification.Builder(MainActivity.this, NOTIFICATION_CHANNEL)
+                        : new Notification.Builder(MainActivity.this);
+                builder.setSmallIcon(android.R.drawable.ic_dialog_info)
+                        .setContentTitle("Terminus Secrets")
+                        .setContentText("New message in #" + safeRoom)
+                        .setContentIntent(pending)
+                        .setAutoCancel(true)
+                        .setCategory(Notification.CATEGORY_MESSAGE);
+                NotificationManager manager = (NotificationManager)
+                        getSystemService(NOTIFICATION_SERVICE);
+                if (manager != null) manager.notify((safeRoom.hashCode() & 0x7fffffff), builder.build());
+            });
+        }
     }
 
     private void confirmChangeServer() {
