@@ -600,6 +600,51 @@ class Handler(BaseHTTPRequestHandler):
             self._post_message(device, body)
             return
 
+        if path == "/api/rooms/manage":
+            device = self._require_device()
+            if device is None:
+                return
+            if ROOM_ADMIN_KEY:
+                supplied_key = str(body.get("admin_key") or "")
+                if not hmac.compare_digest(supplied_key, ROOM_ADMIN_KEY):
+                    self._error(403, "host group-management key required or invalid")
+                    return
+            action = str(body.get("action") or "").strip().lower()
+            room_id = str(body.get("room_id") or "").strip()
+            if not room_id or room_id == "general":
+                self._error(400, "a non-general room_id is required")
+                return
+            if action == "rename":
+                name = " ".join(str(body.get("name") or "").split())[:32]
+                description = " ".join(str(body.get("description") or "").split())[:120]
+                if not name:
+                    self._error(400, "name required")
+                    return
+                with db() as conn:
+                    cur = conn.execute("UPDATE rooms SET name=?, description=? WHERE id=?", (name, description, room_id))
+                    if cur.rowcount == 0:
+                        self._error(404, "room not found")
+                        return
+                    row = conn.execute("SELECT id, name, description, created_at FROM rooms WHERE id=?", (room_id,)).fetchone()
+                with MESSAGE_COND:
+                    MESSAGE_COND.notify_all()
+                self._send_json(200, dict(row))
+                return
+            if action == "delete":
+                with db() as conn:
+                    exists = conn.execute("SELECT 1 FROM rooms WHERE id=?", (room_id,)).fetchone()
+                    if not exists:
+                        self._error(404, "room not found")
+                        return
+                    conn.execute("DELETE FROM messages WHERE room_id=?", (room_id,))
+                    conn.execute("DELETE FROM rooms WHERE id=?", (room_id,))
+                with MESSAGE_COND:
+                    MESSAGE_COND.notify_all()
+                self._send_json(200, {"ok": True, "deleted": room_id})
+                return
+            self._error(400, "action must be rename or delete")
+            return
+
         if path == "/api/rooms":
             device = self._require_device()
             if device is None:
