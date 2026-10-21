@@ -211,6 +211,14 @@ If you forward 8443 on your router, you expose the host directly. Use a strong v
 
 ---
 
+## Source-folder build guides
+
+- [Windows CMD quick start](docs/WINDOWS-CMD-QUICKSTART.md)
+- [Windows app source and build](windows-app/BUILD-WINDOWS.md)
+- [Android app source and build](android-app/BUILD-ANDROID.md)
+
+Build APKs and EXEs locally from these source folders. Generated binaries are ignored by Git and do not need to be committed.
+
 ## Build and test
 
 ### Protocol smoke test
