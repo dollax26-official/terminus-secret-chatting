@@ -97,10 +97,14 @@ def sha256_hex(text: str) -> str:
 
 
 def db() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH, timeout=10)
+    # WAL is enabled once during database initialization, not on every request.
+    # Re-running journal_mode=WAL for every short-lived connection adds avoidable
+    # locking and filesystem work to the hot message/sync path.
+    conn = sqlite3.connect(DB_PATH, timeout=5)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute("PRAGMA synchronous=NORMAL")
     return conn
 
 
@@ -209,6 +213,9 @@ def cert_fingerprint(cert_path: Path) -> str:
 def init_db(passphrase: str) -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     with db() as conn:
+        # Set the persistent journal mode once at startup.
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
         conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS meta (
@@ -450,81 +457,83 @@ class Handler(BaseHTTPRequestHandler):
         self._error(404, "not found")
 
     def _sync(self, device: sqlite3.Row, after: int, wait: int) -> None:
-        deadline = time.time() + wait
+        deadline = time.monotonic() + wait
         while True:
-            with db() as conn:
-                rows = conn.execute(
-                    """
-                    SELECT m.id, m.room_id, m.device_id, m.client_msg_id,
-                           m.nonce, m.ciphertext, m.created_at, d.name AS device_name
-                    FROM messages m JOIN devices d ON d.id = m.device_id
-                    WHERE m.id > ? ORDER BY m.id ASC LIMIT 200
-                    """,
-                    (after,),
-                ).fetchall()
-                if rows or time.time() >= deadline or wait == 0:
-                    rooms = conn.execute(
-                        "SELECT id, name, description, created_at FROM rooms ORDER BY created_at ASC"
-                    ).fetchall()
-                    devices = conn.execute(
-                        "SELECT id, name, created_at, last_seen FROM devices "
-                        "WHERE revoked=0 ORDER BY created_at ASC"
-                    ).fetchall()
-                    more = conn.execute(
-                        "SELECT 1 FROM messages WHERE id > ? LIMIT 1",
-                        (rows[-1]["id"] if rows else after,),
-                    ).fetchone()
-                    payload = {
-                        "messages": [
-                            {
-                                "id": r["id"],
-                                "room_id": r["room_id"],
-                                "device_id": r["device_id"],
-                                "device_name": r["device_name"],
-                                "client_msg_id": r["client_msg_id"],
-                                "nonce": b64e(r["nonce"]),
-                                "ciphertext": b64e(r["ciphertext"]),
-                                "created_at": r["created_at"],
-                            }
-                            for r in rows
-                        ],
-                        "rooms": [
-                            {
-                                "id": r["id"],
-                                "name": r["name"],
-                                "description": r["description"],
-                                "created_at": r["created_at"],
-                            }
-                            for r in rooms
-                        ],
-                        "devices": [
-                            {
-                                "id": r["id"],
-                                "name": r["name"],
-                                "created_at": r["created_at"],
-                                "last_seen": r["last_seen"],
-                            }
-                            for r in devices
-                        ],
-                        "you": device["id"],
-                        "last_id": rows[-1]["id"] if rows else after,
-                        "has_more": bool(more),
-                        "server_time": now_iso(),
-                        "room_admin_required": bool(ROOM_ADMIN_KEY),
-                        "vault": {
-                            "salt": get_meta("vault_salt"),
-                            "iterations": int(
-                                get_meta("kdf_iterations", str(KDF_ITERATIONS))
-                            ),
-                        },
-                    }
-                    self._send_json(200, payload)
-                    return
+            # Hold the condition lock while checking SQLite. The previous
+            # check-then-wait sequence could miss a notify between the SELECT
+            # and Condition.wait(), leaving clients asleep for up to 20 seconds.
+            # Condition.wait() releases the lock atomically, so a message commit
+            # cannot slip into that gap.
             with MESSAGE_COND:
-                remaining = deadline - time.time()
-                if remaining <= 0:
-                    continue
-                MESSAGE_COND.wait(timeout=min(remaining, 20.0))
+                with db() as conn:
+                    rows = conn.execute(
+                        """
+                        SELECT m.id, m.room_id, m.device_id, m.client_msg_id,
+                               m.nonce, m.ciphertext, m.created_at, d.name AS device_name
+                        FROM messages m JOIN devices d ON d.id = m.device_id
+                        WHERE m.id > ? ORDER BY m.id ASC LIMIT 200
+                        """,
+                        (after,),
+                    ).fetchall()
+                    remaining = deadline - time.monotonic()
+                    if rows or remaining <= 0 or wait == 0:
+                        rooms = conn.execute(
+                            "SELECT id, name, description, created_at FROM rooms ORDER BY created_at ASC"
+                        ).fetchall()
+                        devices = conn.execute(
+                            "SELECT id, name, created_at, last_seen FROM devices "
+                            "WHERE revoked=0 ORDER BY created_at ASC"
+                        ).fetchall()
+                        more = conn.execute(
+                            "SELECT 1 FROM messages WHERE id > ? LIMIT 1",
+                            (rows[-1]["id"] if rows else after,),
+                        ).fetchone()
+                        payload = {
+                            "messages": [
+                                {
+                                    "id": row["id"],
+                                    "room_id": row["room_id"],
+                                    "device_id": row["device_id"],
+                                    "device_name": row["device_name"],
+                                    "client_msg_id": row["client_msg_id"],
+                                    "nonce": b64e(row["nonce"]),
+                                    "ciphertext": b64e(row["ciphertext"]),
+                                    "created_at": row["created_at"],
+                                }
+                                for row in rows
+                            ],
+                            "rooms": [
+                                {
+                                    "id": row["id"],
+                                    "name": row["name"],
+                                    "description": row["description"],
+                                    "created_at": row["created_at"],
+                                }
+                                for row in rooms
+                            ],
+                            "devices": [
+                                {
+                                    "id": row["id"],
+                                    "name": row["name"],
+                                    "created_at": row["created_at"],
+                                    "last_seen": row["last_seen"],
+                                }
+                                for row in devices
+                            ],
+                            "you": device["id"],
+                            "last_id": rows[-1]["id"] if rows else after,
+                            "has_more": bool(more),
+                            "server_time": now_iso(),
+                            "room_admin_required": bool(ROOM_ADMIN_KEY),
+                            "vault": {
+                                "salt": get_meta("vault_salt"),
+                                "iterations": int(get_meta("kdf_iterations", str(KDF_ITERATIONS))),
+                            },
+                        }
+                        break
+                MESSAGE_COND.wait(timeout=min(max(remaining, 0), 20.0))
+
+        self._send_json(200, payload)
 
     def _serve_static(self, rel: str) -> None:
         base = WEB_DIR.resolve()
