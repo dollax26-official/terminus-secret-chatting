@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#070a0f">
+<meta name="description" content="Terminus Secrets — an end-to-end encrypted private channel.">
+<meta name="color-scheme" content="dark">
+<title>Terminus Secrets</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="atmosphere" aria-hidden="true"></div>
+
+<section id="connectView" class="connect">
+  <div class="connect-main">
+    <div class="brand-lockup">
+      <svg class="mark" viewBox="0 0 48 48" aria-hidden="true">
+        <path d="M24 4 43 24 24 44 5 24Z" fill="none" stroke="currentColor" stroke-width="2.2"/>
+        <circle cx="24" cy="21" r="4.4" fill="none" stroke="currentColor" stroke-width="2.2"/>
+        <path d="M24 25.5V33" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+      </svg>
+      <div>
+        <span class="brand-name">TERMINUS</span>
+        <span class="brand-sub">SECRETS</span>
+      </div>
+    </div>
+
+    <h1 id="connectTitle">Open your private channel.</h1>
+    <p class="lede" id="connectLede">
+      Pair this device with the host running on your laptop. Messages are encrypted
+      here, before they ever touch the network.
+    </p>
+
+    <div id="hostBadge" class="host-badge">
+      <span class="pulse"></span><span id="hostBadgeText">Locating host…</span>
+    </div>
+
+    <form id="connectForm" autocomplete="off" novalidate>
+      <div id="pairFields">
+        <label class="field">
+          <span>Pairing code</span>
+          <input id="codeInput" name="code" inputmode="text" spellcheck="false"
+                 placeholder="A1B2-C3D4" maxlength="9" autocomplete="one-time-code">
+        </label>
+        <label class="field">
+          <span>Name this device</span>
+          <input id="deviceInput" name="device" maxlength="40" placeholder="Work laptop">
+        </label>
+      </div>
+
+      <label class="field">
+        <span>Vault passphrase</span>
+        <div class="secret-input">
+          <input id="passInput" name="passphrase" type="password" spellcheck="false"
+                 placeholder="xxxxx-xxxxx-xxxxx-xxxxx" autocomplete="current-password">
+          <button type="button" id="revealBtn" class="reveal" aria-label="Show passphrase">show</button>
+        </div>
+      </label>
+
+      <button id="connectBtn" class="primary" type="submit">
+        <span class="btn-label">Unlock channel</span>
+        <span class="spinner" hidden></span>
+      </button>
+      <p id="connectError" class="form-error" role="alert"></p>
+    </form>
+
+    <div class="connect-foot">
+      <span><i class="dot"></i> AES-256-GCM</span>
+      <span><i class="dot"></i> PBKDF2 · 600k</span>
+      <span><i class="dot"></i> history stays on your laptop</span>
+    </div>
+
+    <p class="switch-mode">
+      <button type="button" id="switchModeBtn" class="linkish">Pair a different device</button>
+    </p>
+  </div>
+
+  <aside class="connect-aside">
+    <p class="eyebrow">THREAT MODEL, IN PLAIN WORDS</p>
+    <h2>The relay never sees the words.</h2>
+    <ul>
+      <li><b>Encrypted before upload.</b> The host stores ciphertext and timestamps — never your messages.</li>
+      <li><b>Pinned transport.</b> Clients verify the host certificate fingerprint before sending a token.</li>
+      <li><b>Revocable devices.</b> Every device gets its own token; revoke one without touching the others.</li>
+      <li><b>Yours on disk.</b> The full history lives in one SQLite file on this laptop.</li>
+    </ul>
+    <div class="aside-note">
+      <span class="mono">NOTE</span>
+      Anyone with the vault passphrase and the database can read the history. Keep the
+      passphrase off the host machine if that matters to you.
+    </div>
+  </aside>
+</section>
+
+<section id="chatView" class="app" hidden>
+  <div id="backdrop" class="backdrop"></div>
+
+  <aside id="rail" class="rail">
+    <header class="rail-brand">
+      <svg class="mark small" viewBox="0 0 48 48" aria-hidden="true">
+        <path d="M24 4 43 24 24 44 5 24Z" fill="none" stroke="currentColor" stroke-width="2.4"/>
+        <circle cx="24" cy="21" r="4.4" fill="none" stroke="currentColor" stroke-width="2.4"/>
+        <path d="M24 25.5V33" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+      </svg>
+      <div><b>TERMINUS</b><small>SECRETS</small></div>
+      <span class="live-dot" id="railLive" title="Connected"></span>
+    </header>
+
+    <div class="rail-head">
+      <span class="eyebrow">CHANNELS</span>
+      <button id="newRoomBtn" class="icon-btn" title="New channel" aria-label="New channel">+</button>
+    </div>
+    <nav id="roomList" class="rooms" aria-label="Channels"></nav>
+
+    <footer class="rail-foot">
+      <div class="me-card">
+        <div class="avatar me-avatar" id="meAvatar">T</div>
+        <div class="me-text">
+          <b id="meName">This device</b>
+          <small id="meMeta">encrypted session</small>
+        </div>
+      </div>
+      <button id="infoBtn" class="ghost-btn">Host &amp; devices</button>
+    </footer>
+  </aside>
+
+  <main class="stage">
+    <header class="stage-head">
+      <button id="menuBtn" class="icon-btn menu-btn" aria-label="Open channels">☰</button>
+      <div class="stage-title">
+        <h2 id="roomTitle"># general</h2>
+        <p id="roomMeta">Establishing secure session…</p>
+      </div>
+      <div class="head-badges">
+        <span class="badge lock-badge">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+          AES-256-GCM
+        </span>
+        <span id="syncState" class="badge sync-badge">live</span>
+      </div>
+    </header>
+
+    <div id="messages" class="messages" role="log" aria-live="polite" aria-label="Messages"></div>
+    <button id="jumpBtn" class="jump-btn" type="button" hidden>↓ New messages</button>
+
+    <div id="emptyState" class="empty" hidden>
+      <div class="empty-mark">◇</div>
+      <h3 id="emptyTitle">Nothing here yet.</h3>
+      <p id="emptyText">Send the first message. It is encrypted on this device before it leaves.</p>
+    </div>
+
+    <form id="composer" class="composer" autocomplete="off">
+      <textarea id="input" rows="1" placeholder="Message #general"
+                aria-label="Message" maxlength="8000"></textarea>
+      <button id="sendBtn" class="send-btn" type="submit" aria-label="Send message">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12 20 4l-4.5 16L12 13l-8-1Z"/><path d="M12 13l8-9"/></svg>
+      </button>
+    </form>
+    <p class="composer-hint">
+      <span class="hint-desktop"><span class="mono">ENTER</span> send · <span class="mono">SHIFT+ENTER</span> newline · history saved on the host</span>
+      <span class="hint-mobile">Encrypted on this device · history stays on the host</span>
+    </p>
+  </main>
+</section>
+
+<dialog id="infoDialog" class="dialog">
+  <form method="dialog" class="dialog-inner">
+    <header class="dialog-head">
+      <h3>Host &amp; devices</h3>
+      <button value="close" class="icon-btn" aria-label="Close">×</button>
+    </header>
+
+    <div class="info-block">
+      <span class="eyebrow">HOST</span>
+      <p id="infoHost" class="mono">—</p>
+      <span class="eyebrow">CERTIFICATE SHA-256</span>
+      <p id="infoFingerprint" class="fingerprint">—</p>
+      <button type="button" id="copyFingerprintBtn" class="ghost-btn compact">Copy fingerprint</button>
+    </div>
+
+    <div class="info-block">
+      <span class="eyebrow">PAIRED DEVICES</span>
+      <ul id="deviceList" class="device-list"></ul>
+    </div>
+
+    <div class="info-block">
+      <span class="eyebrow">VAULT</span>
+      <p class="muted">Messages are encrypted with a key derived from your passphrase. The key exists only in this tab's memory.</p>
+      <button type="button" id="notifyBtn" class="ghost-btn compact">Enable desktop notifications</button>
+    </div>
+
+    <footer class="dialog-foot">
+      <div class="foot-left">
+        <button type="button" id="lockBtn" class="danger-btn">Lock &amp; forget this device</button>
+        <button type="button" id="changeHostBtn" class="ghost-btn compact" hidden>Change host</button>
+      </div>
+      <button value="close" class="ghost-btn">Close</button>
+    </footer>
+  </form>
+</dialog>
+
+<dialog id="roomDialog" class="dialog">
+  <form id="roomForm" class="dialog-inner" method="dialog">
+    <header class="dialog-head">
+      <h3>New channel</h3>
+      <button value="cancel" class="icon-btn" aria-label="Close">×</button>
+    </header>
+    <label class="field">
+      <span>Channel name</span>
+      <input id="roomNameInput" maxlength="32" placeholder="operations" autocomplete="off">
+    </label>
+    <p class="form-error" id="roomError" role="alert"></p>
+    <footer class="dialog-foot">
+      <button type="button" value="cancel" class="ghost-btn" data-close>Cancel</button>
+      <button type="submit" class="primary small">Create channel</button>
+    </footer>
+  </form>
+</dialog>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<noscript><p class="noscript">Terminus Secrets needs JavaScript for end-to-end encryption.</p></noscript>
+
+<script src="app.js" defer></script>
+</body>
+</html>
