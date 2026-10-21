@@ -1078,10 +1078,10 @@
     const description = ui.roomDescriptionInput.value.trim().replace(/\s+/g, " ");
     let adminKey = "";
     if (state.roomAdminRequired) {
-      adminKey = window.prompt("Enter the host group-management key. This is separate from the vault passphrase.");
+      adminKey = window.prompt("Enter the host master key (or the separately configured group-management key).");
       if (adminKey === null) return;
       if (!adminKey.trim()) {
-        ui.roomError.textContent = "The host group-management key is required.";
+        ui.roomError.textContent = "The host master key is required.";
         return;
       }
     }
@@ -1130,7 +1130,7 @@
     } else if (!window.confirm(`Delete "${room.name}" and permanently remove its stored messages?`)) {
       return;
     }
-    const adminKey = window.prompt("Enter the host group-management key. This is required for renaming or deleting groups.");
+    const adminKey = window.prompt("Enter the host master key (or the separately configured group-management key) to manage this group.");
     if (adminKey === null) return;
     if (!adminKey.trim()) { toast("The host group-management key is required.", "error"); return; }
     try {
