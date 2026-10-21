@@ -54,6 +54,7 @@ PAIR_ATTEMPTS_PER_MINUTE = 8
 DATA_DIR: Path = DEFAULT_DATA_DIR
 DB_PATH: Path = DEFAULT_DATA_DIR / "terminus.db"
 PAIR_CODE = ""
+MASTER_KEY = ""
 CERT_FINGERPRINT = ""
 SERVER_NAME = socket.gethostname()
 LAN_IP = "127.0.0.1"
@@ -245,6 +246,9 @@ def init_db(passphrase: str) -> None:
                 "INSERT INTO rooms(id, name, created_at) VALUES('general','general',?)",
                 (now_iso(),),
             )
+        room_columns = [row["name"] for row in conn.execute("PRAGMA table_info(rooms)")]
+        if "description" not in room_columns:
+            conn.execute("ALTER TABLE rooms ADD COLUMN description TEXT NOT NULL DEFAULT ''")
         if not conn.execute("SELECT 1 FROM meta WHERE key='vault_salt'").fetchone():
             conn.execute(
                 "INSERT INTO meta(key, value) VALUES('vault_salt', ?)",
@@ -259,6 +263,22 @@ def init_db(passphrase: str) -> None:
     pass_file = DATA_DIR / "vault-passphrase.txt"
     if not pass_file.exists():
         pass_file.write_text(passphrase + "\n", encoding="utf-8")
+
+
+def ensure_master_key(rotate: bool = False) -> str:
+    """Long-lived enrollment secret, separate from the vault passphrase."""
+    global MASTER_KEY
+    path = DATA_DIR / "master-key.txt"
+    if rotate or not path.exists():
+        MASTER_KEY = secrets.token_urlsafe(32)
+        path.write_text(MASTER_KEY + "\n", encoding="utf-8")
+    else:
+        MASTER_KEY = path.read_text(encoding="utf-8").strip()
+        if not MASTER_KEY:
+            MASTER_KEY = secrets.token_urlsafe(32)
+            path.write_text(MASTER_KEY + "\n", encoding="utf-8")
+    set_meta("master_key_hash", sha256_hex(MASTER_KEY))
+    return MASTER_KEY
 
 
 # --------------------------------------------------------------------------- #
@@ -443,7 +463,7 @@ class Handler(BaseHTTPRequestHandler):
                 ).fetchall()
                 if rows or time.time() >= deadline or wait == 0:
                     rooms = conn.execute(
-                        "SELECT id, name, created_at FROM rooms ORDER BY created_at ASC"
+                        "SELECT id, name, description, created_at FROM rooms ORDER BY created_at ASC"
                     ).fetchall()
                     devices = conn.execute(
                         "SELECT id, name, created_at, last_seen FROM devices "
@@ -468,7 +488,12 @@ class Handler(BaseHTTPRequestHandler):
                             for r in rows
                         ],
                         "rooms": [
-                            {"id": r["id"], "name": r["name"], "created_at": r["created_at"]}
+                            {
+                                "id": r["id"],
+                                "name": r["name"],
+                                "description": r["description"],
+                                "created_at": r["created_at"],
+                            }
                             for r in rooms
                         ],
                         "devices": [
@@ -606,9 +631,14 @@ class Handler(BaseHTTPRequestHandler):
             attempts.append(now)
             PAIR_ATTEMPTS[ip] = attempts
 
+        master_key = str(body.get("master_key") or "").strip()
         code = str(body.get("code") or "").strip().upper().replace(" ", "")
         name = " ".join(str(body.get("device_name") or "").split())[:40] or "Device"
-        if not hmac.compare_digest(code, PAIR_CODE):
+        if master_key:
+            if not hmac.compare_digest(master_key, MASTER_KEY):
+                self._error(403, "invalid master key")
+                return
+        elif not hmac.compare_digest(code, PAIR_CODE):
             self._error(403, "invalid pairing code")
             return
 
@@ -687,18 +717,27 @@ class Handler(BaseHTTPRequestHandler):
 
     def _create_room(self, device: sqlite3.Row, body: dict) -> None:
         name = " ".join(str(body.get("name") or "").split())[:32]
+        description = " ".join(str(body.get("description") or "").split())[:120]
         if not name:
             self._error(400, "name required")
             return
         room_id = "r_" + secrets.token_hex(5)
         with db() as conn:
             conn.execute(
-                "INSERT INTO rooms(id, name, created_at) VALUES(?,?,?)",
-                (room_id, name, now_iso()),
+                "INSERT INTO rooms(id, name, description, created_at) VALUES(?,?,?,?)",
+                (room_id, name, description, now_iso()),
             )
         with MESSAGE_COND:
             MESSAGE_COND.notify_all()
-        self._send_json(200, {"id": room_id, "name": name, "created_at": now_iso()})
+        self._send_json(
+            200,
+            {
+                "id": room_id,
+                "name": name,
+                "description": description,
+                "created_at": now_iso(),
+            },
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -708,14 +747,16 @@ def print_banner(port: int, passphrase: str) -> None:
     lines = [
         "",
         "=" * 66,
-        "  TERMINUS SECRETS  ·  host online",
+        "  TERMINUS SECRETS  -  host online",
         "=" * 66,
         f"  This laptop :  https://127.0.0.1:{port}/app/",
         f"  Network     :  https://{LAN_IP}:{port}/app/",
-        f"  Public URL  :  {PUBLIC_URL + '/app/' if PUBLIC_URL else 'Not set — configure router port forwarding (TCP) or a secure tunnel'}",
+        f"  Public URL  :  {PUBLIC_URL + '/app/' if PUBLIC_URL else 'not set (use LAN, Tailscale, or a tunnel)'}",
         f"  Pairing code:  {PAIR_CODE}",
+        f"  Master key  :  {MASTER_KEY}",
         f"  Vault phrase:  {passphrase}",
         "",
+        "  Master key = add a new device. Vault phrase = decrypt history.",
         "  All messages are stored encrypted in:",
         f"    {DB_PATH}",
         "",
@@ -731,9 +772,18 @@ def print_banner(port: int, passphrase: str) -> None:
         pass
     print(text, flush=True)
 
+class IPv6ThreadingHTTPServer(ThreadingHTTPServer):
+    address_family = socket.AF_INET6
 
+    def server_bind(self):
+        self.socket.setsockopt(
+            socket.IPPROTO_IPV6,
+            socket.IPV6_V6ONLY,
+            0,
+        )
+        super().server_bind()
 def main() -> int:
-    global DATA_DIR, DB_PATH, PAIR_CODE, CERT_FINGERPRINT, LAN_IP, SERVER_NAME, PUBLIC_URL
+    global DATA_DIR, DB_PATH, PAIR_CODE, MASTER_KEY, CERT_FINGERPRINT, LAN_IP, SERVER_NAME, PUBLIC_URL
 
     parser = argparse.ArgumentParser(description="Terminus Secrets host")
     parser.add_argument("--host", default="0.0.0.0", help="bind address (default 0.0.0.0)")
@@ -741,6 +791,8 @@ def main() -> int:
     parser.add_argument("--data-dir", default=str(DEFAULT_DATA_DIR))
     parser.add_argument("--public-url", default=os.environ.get("TERMINUS_PUBLIC_URL", ""),
                         help="public HTTPS URL or IP clients use from outside this network")
+    parser.add_argument("--rotate-master-key", action="store_true",
+                        help="generate a new master key, print it, and exit")
     args = parser.parse_args()
 
     DATA_DIR = Path(args.data_dir).resolve()
@@ -759,6 +811,14 @@ def main() -> int:
     )
     init_db(passphrase)
 
+    if args.rotate_master_key:
+        rotated = ensure_master_key(rotate=True)
+        print("New master key: " + rotated)
+        print("data/master-key.txt updated; existing devices stay paired.")
+        return 0
+
+    ensure_master_key()
+
     cert_path = DATA_DIR / "cert.pem"
     key_path = DATA_DIR / "key.pem"
     ensure_certificate(cert_path, key_path)
@@ -767,8 +827,8 @@ def main() -> int:
     PAIR_CODE = secrets.token_hex(2).upper() + "-" + secrets.token_hex(2).upper()
     (DATA_DIR / "pairing-code.txt").write_text(PAIR_CODE + "\n", encoding="utf-8")
 
-    ThreadingHTTPServer.allow_reuse_address = True
-    httpd = ThreadingHTTPServer((args.host, args.port), Handler)
+    IPv6ThreadingHTTPServer.allow_reuse_address = True
+    httpd = IPv6ThreadingHTTPServer(("::", args.port), Handler)
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.minimum_version = ssl.TLSVersion.TLSv1_2
     context.load_cert_chain(certfile=str(cert_path), keyfile=str(key_path))
