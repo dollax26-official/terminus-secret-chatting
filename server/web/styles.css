@@ -168,6 +168,45 @@ a:hover { text-decoration: underline; }
 
 .secret-input { position: relative; }
 .secret-input input { padding-right: 66px; font-family: var(--mono); letter-spacing: 0.04em; }
+
+.auth-switch {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 18px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: rgba(9, 14, 21, 0.8);
+}
+.auth-switch button {
+  flex: 1;
+  height: 34px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transition: background 0.15s, color 0.15s;
+}
+.auth-switch button:hover { color: var(--text); }
+.auth-switch button.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px rgba(62, 224, 197, 0.18);
+}
+
+.field-hint {
+  margin: -6px 0 14px;
+  color: var(--faint);
+  font-size: 11px;
+  line-height: 1.55;
+}
+.field-hint .mono { color: #6f8298; font-size: 10px; }
+
+#masterKeyInput { font-size: 12px; letter-spacing: 0.02em; }
 .reveal {
   position: absolute;
   right: 8px; top: 50%;
@@ -477,7 +516,7 @@ a:hover { text-decoration: underline; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.stage-title p { margin: 2px 0 0; color: var(--faint); font-size: 11px; font-family: var(--mono); }
+.stage-title p { margin: 2px 0 0; color: var(--faint); font-size: 11px; font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .head-badges { margin-left: auto; display: flex; gap: 7px; align-items: center; }
 .badge {
