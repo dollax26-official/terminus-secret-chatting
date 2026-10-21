@@ -604,11 +604,13 @@ class Handler(BaseHTTPRequestHandler):
             device = self._require_device()
             if device is None:
                 return
-            if ROOM_ADMIN_KEY:
-                supplied_key = str(body.get("admin_key") or "")
-                if not hmac.compare_digest(supplied_key, ROOM_ADMIN_KEY):
-                    self._error(403, "host group-management key required or invalid")
-                    return
+            if not ROOM_ADMIN_KEY:
+                self._error(403, "configure TERMINUS_ROOM_ADMIN_KEY to enable group rename/delete")
+                return
+            supplied_key = str(body.get("admin_key") or "")
+            if not hmac.compare_digest(supplied_key, ROOM_ADMIN_KEY):
+                self._error(403, "host group-management key required or invalid")
+                return
             action = str(body.get("action") or "").strip().lower()
             room_id = str(body.get("room_id") or "").strip()
             if not room_id or room_id == "general":
