@@ -873,6 +873,9 @@ def main() -> int:
         return 0
 
     ensure_master_key()
+    # Channel administration defaults to the host master key. An explicit
+    # TERMINUS_ROOM_ADMIN_KEY may be used for deployments that need a separate key.
+    ROOM_ADMIN_KEY = os.environ.get("TERMINUS_ROOM_ADMIN_KEY", "").strip() or MASTER_KEY
 
     cert_path = DATA_DIR / "cert.pem"
     key_path = DATA_DIR / "key.pem"
