@@ -28,6 +28,7 @@
     iterations: 600000,
     key: null,
     rooms: [],
+    roomAdminRequired: false,
     devices: [],
     messages: [],
     lastId: 0,
@@ -573,6 +574,9 @@
   /* ------------------------------------------------------------------- sync */
   async function applySync(data, options = {}) {
     state.rooms = data.rooms || state.rooms;
+    if (typeof data.room_admin_required === "boolean") {
+      state.roomAdminRequired = data.room_admin_required;
+    }
     state.devices = data.devices || state.devices;
     state.lastId = data.last_id ?? state.lastId;
     if (data.you) state.deviceId = data.you;
@@ -1058,6 +1062,15 @@
     }
     const name = ui.roomNameInput.value.trim().replace(/\s+/g, " ");
     const description = ui.roomDescriptionInput.value.trim().replace(/\s+/g, " ");
+    let adminKey = "";
+    if (state.roomAdminRequired) {
+      adminKey = window.prompt("Enter the host group-management key. This is separate from the vault passphrase.");
+      if (adminKey === null) return;
+      if (!adminKey.trim()) {
+        ui.roomError.textContent = "The host group-management key is required.";
+        return;
+      }
+    }
     if (!name) {
       ui.roomError.textContent = "Give the group a name.";
       return;
@@ -1067,9 +1080,13 @@
       const res = await api("/api/rooms", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, description }),
+        body: JSON.stringify({ name, description, ...(state.roomAdminRequired ? { admin_key: adminKey } : {}) }),
       });
-      if (!res.ok) throw new Error("Could not create the group.");
+      if (!res.ok) {
+        let detail = "Could not create the group.";
+        try { detail = (await res.json()).error || detail; } catch (_) {}
+        throw new Error(detail);
+      }
       const room = await res.json();
       ui.roomDialog.close();
       if (!state.rooms.some((r) => r.id === room.id)) state.rooms.push(room);
