@@ -381,3 +381,14 @@ The host never accepts plaintext message bodies.
 ## License
 
 MIT - see [`LICENSE`](LICENSE). The software is provided as-is; this is a personal communication tool, not an audited secure messenger.
+
+
+## Source-only workflow (Windows)
+
+The repository tracks source folders, scripts, configuration, icons, manifests, and lockfiles—not generated APK/EXE binaries. Build the Android APK and Windows EXE on your own PC using the commands in [`docs/WINDOWS-CMD-QUICKSTART.md`](docs/WINDOWS-CMD-QUICKSTART.md), [`android-app/BUILD-ANDROID.md`](android-app/BUILD-ANDROID.md), and [`windows-app/BUILD-WINDOWS.md`](windows-app/BUILD-WINDOWS.md). Generated outputs are ignored by Git. Do not commit signing keystores, passwords, certificates/private keys, or host data.
+
+The Windows Electron client and Android WebView client both load the shared interface from the host at `/app/`. Shared UI changes therefore live in `server/web/`; API authorization and data rules live in `server/host.py`. Keep these in sync when adding features.
+
+### Group administration status
+
+Set `TERMINUS_ROOM_ADMIN_KEY` in the host process environment to require the separate key for group creation. Rename/delete are also checked server-side and require the key to be configured. The shared client prompts for the key. Deleting a group permanently deletes its stored messages. The `general` room is protected. **Groups are not private:** room membership and room-specific read authorization are not implemented, so all paired devices can see rooms and their messages.
