@@ -908,3 +908,8 @@ button:focus:not(:focus-visible) { outline: none; }
   cursor: pointer;
 }
 .room-manage:hover { color: var(--text); background: var(--accent-soft); }
+
+
+/* Appearance controls */
+#backgroundColorInput, #accentColorInput { min-height: 48px; width: 100%; padding: 4px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+#settingsBtn { margin-top: 8px; }
