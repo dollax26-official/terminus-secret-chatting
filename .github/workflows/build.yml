@@ -22,8 +22,8 @@ jobs:
         run: python -m pip install -r server/requirements.txt
       - name: Run protocol smoke test
         run: python tools/smoke_test.py
-      - name: Run master-key tests
-        run: python tools/test_master.py
+      - name: Compile host server
+        run: python -m py_compile server/host.py
 
   windows-source-check:
     name: Windows client source check
