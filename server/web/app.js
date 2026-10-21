@@ -955,11 +955,18 @@
   }
 
   function notifyNew(message) {
-    if (!("Notification" in window) || Notification.permission !== "granted") return;
     const room = state.rooms.find((r) => r.id === message.room_id);
+    const roomName = room ? room.name : "channel";
     try {
+      // Android WebView does not consistently implement the browser Notification API.
+      // Use the native shell when present; it intentionally displays no message content.
+      if (window.TerminusNative && typeof window.TerminusNative.notifyMessage === "function") {
+        window.TerminusNative.notifyMessage(roomName);
+        return;
+      }
+      if (!("Notification" in window) || Notification.permission !== "granted") return;
       const notification = new Notification("Terminus Secrets", {
-        body: `New encrypted message in #${room ? room.name : "channel"}`,
+        body: `New encrypted message in #${roomName}`,
         tag: `terminus-${message.room_id}`,
         silent: false,
       });
