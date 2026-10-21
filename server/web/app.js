@@ -1120,7 +1120,7 @@
     if (action === "rename") {
       name = window.prompt("New group name:", room.name);
       if (name === null) return;
-      name = name.trim().replace(/\\s+/g, " ");
+      name = name.trim().replace(/\s+/g, " ");
       if (!name) { toast("A group name is required.", "error"); return; }
       description = window.prompt("Group description:", description);
       if (description === null) return;
@@ -1134,7 +1134,7 @@
       const res = await api("/api/rooms/manage", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, room_id: room.id, name, description, ...(state.roomAdminRequired ? { admin_key: adminKey } : {}) }),
+        body: JSON.stringify({ action, room_id: room.id, name, description, admin_key: adminKey }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Group management failed.");
