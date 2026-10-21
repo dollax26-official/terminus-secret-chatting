@@ -57,6 +57,7 @@ PAIR_CODE = ""
 CERT_FINGERPRINT = ""
 SERVER_NAME = socket.gethostname()
 LAN_IP = "127.0.0.1"
+PUBLIC_URL = ""
 MESSAGE_COND = threading.Condition()
 PAIR_LOCK = threading.Lock()
 PAIR_ATTEMPTS: dict[str, list[float]] = {}
@@ -711,6 +712,7 @@ def print_banner(port: int, passphrase: str) -> None:
         "=" * 66,
         f"  This laptop :  https://127.0.0.1:{port}/app/",
         f"  Network     :  https://{LAN_IP}:{port}/app/",
+        f"  Public URL  :  {PUBLIC_URL + '/app/' if PUBLIC_URL else 'Not set — configure router port forwarding (TCP) or a secure tunnel'}",
         f"  Pairing code:  {PAIR_CODE}",
         f"  Vault phrase:  {passphrase}",
         "",
@@ -731,18 +733,23 @@ def print_banner(port: int, passphrase: str) -> None:
 
 
 def main() -> int:
-    global DATA_DIR, DB_PATH, PAIR_CODE, CERT_FINGERPRINT, LAN_IP, SERVER_NAME
+    global DATA_DIR, DB_PATH, PAIR_CODE, CERT_FINGERPRINT, LAN_IP, SERVER_NAME, PUBLIC_URL
 
     parser = argparse.ArgumentParser(description="Terminus Secrets host")
     parser.add_argument("--host", default="0.0.0.0", help="bind address (default 0.0.0.0)")
     parser.add_argument("--port", type=int, default=8443, help="HTTPS port (default 8443)")
     parser.add_argument("--data-dir", default=str(DEFAULT_DATA_DIR))
+    parser.add_argument("--public-url", default=os.environ.get("TERMINUS_PUBLIC_URL", ""),
+                        help="public HTTPS URL or IP clients use from outside this network")
     args = parser.parse_args()
 
     DATA_DIR = Path(args.data_dir).resolve()
     DB_PATH = DATA_DIR / "terminus.db"
     LAN_IP = local_ip()
     SERVER_NAME = socket.gethostname()
+    PUBLIC_URL = args.public_url.strip().rstrip("/")
+    if PUBLIC_URL and not PUBLIC_URL.startswith("https://"):
+        parser.error("--public-url must start with https://")
 
     pass_file = DATA_DIR / "vault-passphrase.txt"
     passphrase = (
