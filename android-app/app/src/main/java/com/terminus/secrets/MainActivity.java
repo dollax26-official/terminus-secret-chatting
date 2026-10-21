@@ -124,7 +124,7 @@ public class MainActivity extends Activity {
         root.addView(brand);
 
         TextView mark = new TextView(this);
-        mark.setText("â—‡");
+        mark.setText("◇");
         mark.setTextColor(ACCENT);
         mark.setTextSize(30);
         brand.addView(mark);
@@ -223,7 +223,7 @@ public class MainActivity extends Activity {
             }
             connect.setEnabled(false);
             status.setTextColor(FAINT);
-            status.setText("Contacting hostâ€¦");
+            status.setText("Contacting host…");
             final String target = url;
             executor.execute(() -> {
                 try {
@@ -248,7 +248,7 @@ public class MainActivity extends Activity {
 
     private void showTrustDialog(HostInfo info) {
         String pretty = prettyFingerprint(info.fingerprint);
-        String message = info.serverName + "  Â·  v" + info.version + "\n\n"
+        String message = info.serverName + "  ·  v" + info.version + "\n\n"
                 + "Certificate SHA-256:\n" + pretty + "\n\n"
                 + "Compare this with the fingerprint printed in the host window. "
                 + "If it differs, do not continue.";
