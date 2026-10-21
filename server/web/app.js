@@ -1091,7 +1091,7 @@
       const res = await api("/api/rooms", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, description, ...(state.roomAdminRequired ? { admin_key: adminKey } : {}) }),
+        body: JSON.stringify({ name, description, admin_key: adminKey }),
       });
       if (!res.ok) {
         let detail = "Could not create the group.";
@@ -1127,12 +1127,9 @@
     } else if (!window.confirm(`Delete "${room.name}" and permanently remove its stored messages?`)) {
       return;
     }
-    let adminKey = "";
-    if (state.roomAdminRequired) {
-      adminKey = window.prompt("Enter the host group-management key.");
-      if (adminKey === null) return;
-      if (!adminKey.trim()) { toast("The host group-management key is required.", "error"); return; }
-    }
+    const adminKey = window.prompt("Enter the host group-management key. This is required for renaming or deleting groups.");
+    if (adminKey === null) return;
+    if (!adminKey.trim()) { toast("The host group-management key is required.", "error"); return; }
     try {
       const res = await api("/api/rooms/manage", {
         method: "POST",
