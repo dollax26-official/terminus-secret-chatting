@@ -583,26 +583,36 @@
     if (data.you) state.deviceId = data.you;
 
     const incoming = [];
+    const decryptRows = [];
     for (const row of data.messages || []) {
       const messageKey = String(row.id);
       if (state.messageIds.has(messageKey)) continue;
       state.messageIds.add(messageKey);
 
-      // Our own message echoed back: reconcile the optimistic bubble instead
-      // of adding a duplicate.
-      const local = state.messages.find(
-        (m) => m.client_msg_id === row.client_msg_id && String(m.id).startsWith("tmp-")
-      );
-      if (local) {
-        local.id = row.id;
-        local.created_at = row.created_at;
-        local.pending = false;
-        local.failed = false;
-        if (local.room_id === state.currentRoom) updateMessageNode(local);
-        continue;
+      // Only search for optimistic messages when this row belongs to us.
+      // Avoid scanning the full local history for every other user's message.
+      if (row.device_id === state.deviceId) {
+        const local = state.messages.find(
+          (m) => m.client_msg_id === row.client_msg_id && String(m.id).startsWith("tmp-")
+        );
+        if (local) {
+          local.id = row.id;
+          local.created_at = row.created_at;
+          local.pending = false;
+          local.failed = false;
+          if (local.room_id === state.currentRoom) updateMessageNode(local);
+          continue;
+        }
       }
+      decryptRows.push(row);
+    }
 
-      const text = await decryptMessage(row);
+    // WebCrypto can decrypt a batch concurrently; sequential awaits made large
+    // history syncs visibly block message rendering on slower phones.
+    const decryptedTexts = await Promise.all(decryptRows.map((row) => decryptMessage(row)));
+    for (let i = 0; i < decryptRows.length; i += 1) {
+      const row = decryptRows[i];
+      const text = decryptedTexts[i];
       incoming.push({
         id: row.id,
         client_msg_id: row.client_msg_id,
