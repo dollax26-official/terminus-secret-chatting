@@ -39,6 +39,7 @@
     stopped: false,
     toastTimer: null,
     connecting: false,
+    authMethod: "code",
     roomSignature: "",
     newBelow: 0,
   };
@@ -258,6 +259,10 @@
     ui.connectSpinner = $("#connectBtn .spinner");
     ui.connectError = $("#connectError");
     ui.pairFields = $("#pairFields");
+    ui.authSwitch = $("#authSwitch");
+    ui.codeField = $("#codeField");
+    ui.masterField = $("#masterField");
+    ui.masterKeyInput = $("#masterKeyInput");
     ui.codeInput = $("#codeInput");
     ui.deviceInput = $("#deviceInput");
     ui.passInput = $("#passInput");
@@ -291,6 +296,7 @@
     ui.roomDialog = $("#roomDialog");
     ui.roomForm = $("#roomForm");
     ui.roomNameInput = $("#roomNameInput");
+    ui.roomDescriptionInput = $("#roomDescriptionInput");
     ui.roomError = $("#roomError");
     ui.toast = $("#toast");
     ui.rail = $("#rail");
@@ -311,6 +317,10 @@
       } else if (state.token) {
         setMode("unlock");
       }
+    });
+    ui.authSwitch.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-auth]");
+      if (button) setAuthMethod(button.dataset.auth);
     });
 
     ui.composer.addEventListener("submit", (event) => {
@@ -338,6 +348,7 @@
     $("#newRoomBtn").addEventListener("click", () => {
       ui.roomError.textContent = "";
       ui.roomNameInput.value = "";
+      ui.roomDescriptionInput.value = "";
       ui.roomDialog.showModal();
       setTimeout(() => ui.roomNameInput.focus(), 40);
     });
@@ -377,6 +388,21 @@
     }
   }
 
+  function setAuthMethod(method) {
+    state.authMethod = method === "master" ? "master" : "code";
+    ui.codeField.hidden = state.authMethod !== "code";
+    ui.masterField.hidden = state.authMethod !== "master";
+    ui.authSwitch.querySelectorAll("[data-auth]").forEach((button) => {
+      const active = button.dataset.auth === state.authMethod;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-selected", String(active));
+    });
+    ui.connectError.textContent = "";
+    setTimeout(() => {
+      (state.authMethod === "master" ? ui.masterKeyInput : ui.codeInput).focus();
+    }, 40);
+  }
+
   function setMode(mode) {
     state.mode = mode;
     const unlock = mode === "unlock";
@@ -392,6 +418,7 @@
     if (!unlock) {
       ui.codeInput.value = "";
       ui.deviceInput.value = state.deviceName || guessDeviceName();
+      setAuthMethod(state.authMethod);
     }
     setTimeout(() => (unlock ? ui.passInput : ui.codeInput).focus(), 60);
   }
@@ -442,19 +469,35 @@
 
     try {
       if (state.mode === "pair") {
-        const code = ui.codeInput.value.trim().toUpperCase().replace(/\s+/g, "");
         const name = ui.deviceInput.value.trim() || guessDeviceName();
-        if (code.replace("-", "").length < 6) {
-          throw new Error("Enter the pairing code shown in the host window.");
+        const payload = { device_name: name };
+        if (state.authMethod === "master") {
+          const masterKey = ui.masterKeyInput.value.trim();
+          if (masterKey.length < 20) {
+            throw new Error("Paste the master key printed by the host.");
+          }
+          payload.master_key = masterKey;
+        } else {
+          const code = ui.codeInput.value.trim().toUpperCase().replace(/\s+/g, "");
+          if (code.replace("-", "").length < 6) {
+            throw new Error("Enter the pairing code shown in the host window.");
+          }
+          payload.code = code;
         }
         const res = await fetch("/api/pair", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ code, device_name: name }),
+          body: JSON.stringify(payload),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
-          if (res.status === 403) throw new Error("That pairing code is wrong or expired.");
+          if (res.status === 403) {
+            throw new Error(
+              state.authMethod === "master"
+                ? "That master key is not valid for this host."
+                : "That pairing code is wrong or expired."
+            );
+          }
           if (res.status === 429) throw new Error("Too many attempts. Wait a minute, then retry.");
           throw new Error(data.error || "Pairing failed.");
         }
@@ -622,6 +665,7 @@
     ui.connectView.hidden = true;
     ui.chatView.hidden = false;
     ui.passInput.value = "";
+    ui.masterKeyInput.value = "";
     document.title = "Terminus Secrets";
     ui.meName.textContent = state.deviceName || "This device";
     ui.meMeta.textContent = "encrypted session";
@@ -646,7 +690,7 @@
   /* ------------------------------------------------------------------- rooms */
   function renderRooms() {
     const signature =
-      state.rooms.map((room) => `${room.id}:${room.name}`).join("|") +
+      state.rooms.map((room) => `${room.id}:${room.name}:${room.description || ""}`).join("|") +
       `|${state.currentRoom}|` +
       Array.from(state.unread.entries())
         .map(([id, count]) => `${id}=${count}`)
@@ -702,7 +746,8 @@
     const room = currentRoom();
     ui.roomTitle.textContent = `# ${room.name}`;
     const count = state.devices.length || 1;
-    ui.roomMeta.textContent = `${count} device${count === 1 ? "" : "s"} · end-to-end encrypted`;
+    const description = room.description ? `${room.description} · ` : "";
+    ui.roomMeta.textContent = `${description}${count} device${count === 1 ? "" : "s"} · end-to-end encrypted`;
     ui.input.placeholder = `Message #${room.name}`;
   }
 
@@ -1012,8 +1057,9 @@
       return;
     }
     const name = ui.roomNameInput.value.trim().replace(/\s+/g, " ");
+    const description = ui.roomDescriptionInput.value.trim().replace(/\s+/g, " ");
     if (!name) {
-      ui.roomError.textContent = "Give the channel a name.";
+      ui.roomError.textContent = "Give the group a name.";
       return;
     }
     ui.roomError.textContent = "";
@@ -1021,9 +1067,9 @@
       const res = await api("/api/rooms", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, description }),
       });
-      if (!res.ok) throw new Error("Could not create the channel.");
+      if (!res.ok) throw new Error("Could not create the group.");
       const room = await res.json();
       ui.roomDialog.close();
       if (!state.rooms.some((r) => r.id === room.id)) state.rooms.push(room);
