@@ -55,6 +55,7 @@ DATA_DIR: Path = DEFAULT_DATA_DIR
 DB_PATH: Path = DEFAULT_DATA_DIR / "terminus.db"
 PAIR_CODE = ""
 MASTER_KEY = ""
+ROOM_ADMIN_KEY = ""  # Optional; when set, only key holders may create groups.
 CERT_FINGERPRINT = ""
 SERVER_NAME = socket.gethostname()
 LAN_IP = "127.0.0.1"
@@ -509,6 +510,7 @@ class Handler(BaseHTTPRequestHandler):
                         "last_id": rows[-1]["id"] if rows else after,
                         "has_more": bool(more),
                         "server_time": now_iso(),
+                        "room_admin_required": bool(ROOM_ADMIN_KEY),
                         "vault": {
                             "salt": get_meta("vault_salt"),
                             "iterations": int(
@@ -602,6 +604,11 @@ class Handler(BaseHTTPRequestHandler):
             device = self._require_device()
             if device is None:
                 return
+            if ROOM_ADMIN_KEY:
+                supplied_key = str(body.get("admin_key") or "")
+                if not hmac.compare_digest(supplied_key, ROOM_ADMIN_KEY):
+                    self._error(403, "host group-management key required or invalid")
+                    return
             self._create_room(device, body)
             return
 
@@ -783,7 +790,7 @@ class IPv6ThreadingHTTPServer(ThreadingHTTPServer):
         )
         super().server_bind()
 def main() -> int:
-    global DATA_DIR, DB_PATH, PAIR_CODE, MASTER_KEY, CERT_FINGERPRINT, LAN_IP, SERVER_NAME, PUBLIC_URL
+    global DATA_DIR, DB_PATH, PAIR_CODE, MASTER_KEY, ROOM_ADMIN_KEY, CERT_FINGERPRINT, LAN_IP, SERVER_NAME, PUBLIC_URL
 
     parser = argparse.ArgumentParser(description="Terminus Secrets host")
     parser.add_argument("--host", default="0.0.0.0", help="bind address (default 0.0.0.0)")
@@ -800,6 +807,7 @@ def main() -> int:
     LAN_IP = local_ip()
     SERVER_NAME = socket.gethostname()
     PUBLIC_URL = args.public_url.strip().rstrip("/")
+    ROOM_ADMIN_KEY = os.environ.get("TERMINUS_ROOM_ADMIN_KEY", "").strip()
     if PUBLIC_URL and not PUBLIC_URL.startswith("https://"):
         parser.error("--public-url must start with https://")
 
