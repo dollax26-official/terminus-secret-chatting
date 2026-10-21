@@ -20,7 +20,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
-ROOT = Path(r"C:\Users\mohsen\.openclaw-autoclaw\workspace\terminus-secrets")
+ROOT = Path(__file__).resolve().parents[1]
 HOST = ROOT / "server" / "host.py"
 DATA = ROOT / ".testdata"
 PORT = 9553

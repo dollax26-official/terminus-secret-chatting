@@ -893,3 +893,18 @@ button:focus:not(:focus-visible) { outline: none; }
   .msg .bubble { padding: 10px 12px; border-radius: 13px 4px 13px 13px; }
   .msg.mine .bubble { border-radius: 4px 13px 13px 13px; }
 }
+
+
+/* Group management actions */
+.room-manage {
+  align-self: flex-end;
+  margin: -5px 5px 4px 0;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+.room-manage:hover { color: var(--text); background: var(--accent-soft); }

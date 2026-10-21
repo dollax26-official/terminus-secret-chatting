@@ -28,6 +28,7 @@
     iterations: 600000,
     key: null,
     rooms: [],
+    roomAdminRequired: false,
     devices: [],
     messages: [],
     lastId: 0,
@@ -573,6 +574,9 @@
   /* ------------------------------------------------------------------- sync */
   async function applySync(data, options = {}) {
     state.rooms = data.rooms || state.rooms;
+    if (typeof data.room_admin_required === "boolean") {
+      state.roomAdminRequired = data.room_admin_required;
+    }
     state.devices = data.devices || state.devices;
     state.lastId = data.last_id ?? state.lastId;
     if (data.you) state.deviceId = data.you;
@@ -709,6 +713,17 @@
       }
       button.addEventListener("click", () => selectRoom(room.id));
       fragment.append(button);
+      if (room.id !== "general") {
+        const manage = el("button", "room-manage", "···");
+        manage.type = "button";
+        manage.title = `Manage ${room.name}`;
+        manage.setAttribute("aria-label", `Manage ${room.name}`);
+        manage.addEventListener("click", (event) => {
+          event.stopPropagation();
+          manageRoom(room);
+        });
+        fragment.append(manage);
+      }
     }
     ui.roomList.replaceChildren(fragment);
     updateTitle();
@@ -1058,6 +1073,15 @@
     }
     const name = ui.roomNameInput.value.trim().replace(/\s+/g, " ");
     const description = ui.roomDescriptionInput.value.trim().replace(/\s+/g, " ");
+    let adminKey = "";
+    if (state.roomAdminRequired) {
+      adminKey = window.prompt("Enter the host group-management key. This is separate from the vault passphrase.");
+      if (adminKey === null) return;
+      if (!adminKey.trim()) {
+        ui.roomError.textContent = "The host group-management key is required.";
+        return;
+      }
+    }
     if (!name) {
       ui.roomError.textContent = "Give the group a name.";
       return;
@@ -1067,15 +1091,75 @@
       const res = await api("/api/rooms", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, description }),
+        body: JSON.stringify({ name, description, admin_key: adminKey }),
       });
-      if (!res.ok) throw new Error("Could not create the group.");
+      if (!res.ok) {
+        let detail = "Could not create the group.";
+        try { detail = (await res.json()).error || detail; } catch (_) {}
+        throw new Error(detail);
+      }
       const room = await res.json();
       ui.roomDialog.close();
       if (!state.rooms.some((r) => r.id === room.id)) state.rooms.push(room);
       selectRoom(room.id);
     } catch (err) {
       ui.roomError.textContent = err.message;
+    }
+  }
+
+  async function manageRoom(room) {
+    const choice = window.prompt(`Manage "${room.name}": type rename or delete`);
+    if (choice === null) return;
+    const action = choice.trim().toLowerCase();
+    if (action !== "rename" && action !== "delete") {
+      toast("Choose rename or delete.", "error");
+      return;
+    }
+    let name = room.name;
+    let description = room.description || "";
+    if (action === "rename") {
+      name = window.prompt("New group name:", room.name);
+      if (name === null) return;
+      name = name.trim().replace(/\s+/g, " ");
+      if (!name) { toast("A group name is required.", "error"); return; }
+      description = window.prompt("Group description:", description);
+      if (description === null) return;
+    } else if (!window.confirm(`Delete "${room.name}" and permanently remove its stored messages?`)) {
+      return;
+    }
+    const adminKey = window.prompt("Enter the host group-management key. This is required for renaming or deleting groups.");
+    if (adminKey === null) return;
+    if (!adminKey.trim()) { toast("The host group-management key is required.", "error"); return; }
+    try {
+      const res = await api("/api/rooms/manage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, room_id: room.id, name, description, admin_key: adminKey }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Group management failed.");
+      if (action === "rename") {
+        state.rooms = state.rooms.map((item) => item.id === room.id ? data : item);
+        renderRooms();
+        updateHeader();
+        toast("Group renamed.");
+      } else {
+        state.rooms = state.rooms.filter((item) => item.id !== room.id);
+        state.messages = state.messages.filter((item) => item.room_id !== room.id);
+        state.unread.delete(room.id);
+        if (state.currentRoom === room.id) {
+          state.currentRoom = "general";
+          localStorage.setItem(LS.room, "general");
+          renderRooms();
+          updateHeader();
+          renderMessages();
+        } else {
+          renderRooms();
+        }
+        toast("Group deleted.");
+      }
+    } catch (err) {
+      toast(err.message || "Group management failed.", "error");
     }
   }
 

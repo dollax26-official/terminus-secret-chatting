@@ -55,6 +55,7 @@ DATA_DIR: Path = DEFAULT_DATA_DIR
 DB_PATH: Path = DEFAULT_DATA_DIR / "terminus.db"
 PAIR_CODE = ""
 MASTER_KEY = ""
+ROOM_ADMIN_KEY = ""  # Optional; when set, only key holders may create groups.
 CERT_FINGERPRINT = ""
 SERVER_NAME = socket.gethostname()
 LAN_IP = "127.0.0.1"
@@ -509,6 +510,7 @@ class Handler(BaseHTTPRequestHandler):
                         "last_id": rows[-1]["id"] if rows else after,
                         "has_more": bool(more),
                         "server_time": now_iso(),
+                        "room_admin_required": bool(ROOM_ADMIN_KEY),
                         "vault": {
                             "salt": get_meta("vault_salt"),
                             "iterations": int(
@@ -598,10 +600,62 @@ class Handler(BaseHTTPRequestHandler):
             self._post_message(device, body)
             return
 
+        if path == "/api/rooms/manage":
+            device = self._require_device()
+            if device is None:
+                return
+            if not ROOM_ADMIN_KEY:
+                self._error(403, "configure TERMINUS_ROOM_ADMIN_KEY to enable group rename/delete")
+                return
+            supplied_key = str(body.get("admin_key") or "")
+            if not hmac.compare_digest(supplied_key, ROOM_ADMIN_KEY):
+                self._error(403, "host group-management key required or invalid")
+                return
+            action = str(body.get("action") or "").strip().lower()
+            room_id = str(body.get("room_id") or "").strip()
+            if not room_id or room_id == "general":
+                self._error(400, "a non-general room_id is required")
+                return
+            if action == "rename":
+                name = " ".join(str(body.get("name") or "").split())[:32]
+                description = " ".join(str(body.get("description") or "").split())[:120]
+                if not name:
+                    self._error(400, "name required")
+                    return
+                with db() as conn:
+                    cur = conn.execute("UPDATE rooms SET name=?, description=? WHERE id=?", (name, description, room_id))
+                    if cur.rowcount == 0:
+                        self._error(404, "room not found")
+                        return
+                    row = conn.execute("SELECT id, name, description, created_at FROM rooms WHERE id=?", (room_id,)).fetchone()
+                with MESSAGE_COND:
+                    MESSAGE_COND.notify_all()
+                self._send_json(200, dict(row))
+                return
+            if action == "delete":
+                with db() as conn:
+                    exists = conn.execute("SELECT 1 FROM rooms WHERE id=?", (room_id,)).fetchone()
+                    if not exists:
+                        self._error(404, "room not found")
+                        return
+                    conn.execute("DELETE FROM messages WHERE room_id=?", (room_id,))
+                    conn.execute("DELETE FROM rooms WHERE id=?", (room_id,))
+                with MESSAGE_COND:
+                    MESSAGE_COND.notify_all()
+                self._send_json(200, {"ok": True, "deleted": room_id})
+                return
+            self._error(400, "action must be rename or delete")
+            return
+
         if path == "/api/rooms":
             device = self._require_device()
             if device is None:
                 return
+            if ROOM_ADMIN_KEY:
+                supplied_key = str(body.get("admin_key") or "")
+                if not hmac.compare_digest(supplied_key, ROOM_ADMIN_KEY):
+                    self._error(403, "host group-management key required or invalid")
+                    return
             self._create_room(device, body)
             return
 
@@ -783,7 +837,7 @@ class IPv6ThreadingHTTPServer(ThreadingHTTPServer):
         )
         super().server_bind()
 def main() -> int:
-    global DATA_DIR, DB_PATH, PAIR_CODE, MASTER_KEY, CERT_FINGERPRINT, LAN_IP, SERVER_NAME, PUBLIC_URL
+    global DATA_DIR, DB_PATH, PAIR_CODE, MASTER_KEY, ROOM_ADMIN_KEY, CERT_FINGERPRINT, LAN_IP, SERVER_NAME, PUBLIC_URL
 
     parser = argparse.ArgumentParser(description="Terminus Secrets host")
     parser.add_argument("--host", default="0.0.0.0", help="bind address (default 0.0.0.0)")
@@ -800,6 +854,7 @@ def main() -> int:
     LAN_IP = local_ip()
     SERVER_NAME = socket.gethostname()
     PUBLIC_URL = args.public_url.strip().rstrip("/")
+    ROOM_ADMIN_KEY = os.environ.get("TERMINUS_ROOM_ADMIN_KEY", "").strip()
     if PUBLIC_URL and not PUBLIC_URL.startswith("https://"):
         parser.error("--public-url must start with https://")
 
