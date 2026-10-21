@@ -1,0 +1,179 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Terminus Secrets â€” connect</title>
+<style>
+  :root{--bg:#06090e;--panel:#0c121a;--line:#1c2735;--text:#e8eef7;--muted:#8395aa;
+        --faint:#5a6b7f;--accent:#3ee0c5;--danger:#ff7185;--mono:ui-monospace,"Cascadia Code",Consolas,monospace}
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{background:
+      radial-gradient(800px 520px at 12% -10%,rgba(62,224,197,.12),transparent 60%),
+      radial-gradient(700px 480px at 95% 0%,rgba(111,157,255,.09),transparent 60%),
+      var(--bg);
+    color:var(--text);font-family:"Segoe UI",system-ui,sans-serif;display:grid;place-items:center;overflow:auto}
+  .wrap{width:min(720px,calc(100vw - 48px));padding:44px 0}
+  .brand{display:flex;align-items:center;gap:12px;margin-bottom:32px}
+  .mark{width:38px;height:38px;color:var(--accent);filter:drop-shadow(0 0 16px rgba(62,224,197,.35))}
+  .brand b{display:block;font-size:13px;letter-spacing:.3em}
+  .brand small{display:block;font-family:var(--mono);font-size:9px;letter-spacing:.4em;color:var(--accent);margin-top:4px}
+  h1{margin:0 0 12px;font-size:40px;line-height:1.08;letter-spacing:-.035em;font-weight:620;max-width:15ch}
+  .lede{margin:0 0 28px;color:var(--muted);max-width:54ch;font-size:14.5px;line-height:1.6}
+  .card{border:1px solid var(--line);border-radius:16px;background:rgba(12,18,26,.86);padding:24px;
+        box-shadow:0 24px 70px rgba(0,0,0,.4)}
+  label{display:block;font-family:var(--mono);font-size:10px;letter-spacing:.14em;
+        text-transform:uppercase;color:var(--muted);margin-bottom:7px}
+  input{width:100%;height:48px;padding:0 14px;border:1px solid var(--line);border-radius:11px;
+        background:#080e15;color:var(--text);font:14px var(--mono);outline:none}
+  input:focus{border-color:rgba(62,224,197,.4);box-shadow:0 0 0 4px rgba(62,224,197,.08)}
+  .row{display:flex;gap:10px;margin-top:14px}
+  button{height:44px;padding:0 20px;border-radius:10px;border:1px solid var(--line);
+         background:transparent;color:var(--text);font-size:13.5px;cursor:pointer}
+  button:hover{border-color:#2b3b4e}
+  button.primary{background:linear-gradient(135deg,#4bf0d4,#2cc9b2);border:0;color:#04211d;font-weight:700;
+                 box-shadow:0 10px 30px rgba(62,224,197,.18)}
+  button.primary:disabled{opacity:.55;cursor:progress;box-shadow:none}
+  .status{margin-top:16px;font-size:12.5px;color:var(--faint);min-height:18px;line-height:1.5}
+  .status.error{color:var(--danger)}
+  .result{display:none;margin-top:18px;padding-top:18px;border-top:1px solid #151f2b}
+  .result.show{display:block}
+  .server{font-size:15px;font-weight:600;margin:0 0 3px}
+  .version{font-family:var(--mono);font-size:10px;color:var(--faint);margin:0 0 14px}
+  .fplabel{font-family:var(--mono);font-size:9px;letter-spacing:.16em;color:var(--faint);text-transform:uppercase}
+  .fp{font-family:var(--mono);font-size:10.5px;line-height:1.7;color:var(--accent);
+      word-break:break-all;margin:5px 0 4px;user-select:text}
+  .note{font-size:11px;color:var(--faint);line-height:1.55;margin:8px 0 0}
+  .current{display:none;align-items:center;gap:10px;padding:12px 14px;border:1px solid rgba(62,224,197,.2);
+           background:rgba(62,224,197,.05);border-radius:10px;margin-bottom:18px;font-size:12.5px;color:var(--muted)}
+  .current .dot{width:6px;height:6px;border-radius:50%;background:var(--accent)}
+  .current b{color:var(--text);font-weight:600}
+  .current .spacer{flex:1}
+  .link{border:0;background:none;color:var(--faint);font-size:11.5px;padding:0;text-decoration:underline;height:auto}
+  .link:hover{color:var(--accent)}
+  .foot{margin-top:22px;display:flex;gap:18px;flex-wrap:wrap;font-family:var(--mono);font-size:9.5px;color:#4d5d70}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">
+    <svg class="mark" viewBox="0 0 48 48" fill="none"><path d="M24 4 43 24 24 44 5 24Z" stroke="currentColor" stroke-width="2.2"/><circle cx="24" cy="21" r="4.4" stroke="currentColor" stroke-width="2.2"/><path d="M24 25.5V33" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+    <div><b>TERMINUS</b><small>SECRETS</small></div>
+  </div>
+
+  <h1>Connect this desk to your host.</h1>
+  <p class="lede">Enter the address of the laptop running <span style="font-family:var(--mono);font-size:12.5px">host.py</span>.
+     This app shows the host certificate fingerprint and remembers only that exact identity.</p>
+
+  <div class="card">
+    <div class="current" id="current">
+      <span class="dot"></span>
+      <span>Paired with <b id="currentName">â€”</b></span>
+      <span class="spacer"></span>
+      <button type="button" class="link" id="changeBtn">change host</button>
+    </div>
+
+    <label for="url">Host address</label>
+    <input id="url" spellcheck="false" value="https://127.0.0.1:8443" autocomplete="off">
+    <div class="row">
+      <button type="button" id="probeBtn">Test connection</button>
+      <button type="button" class="primary" id="trustBtn" disabled>Trust &amp; open</button>
+    </div>
+    <div class="status" id="status" role="status"></div>
+
+    <div class="result" id="result">
+      <p class="server" id="serverName">â€”</p>
+      <p class="version" id="serverVersion">â€”</p>
+      <div class="fplabel">Certificate SHA-256 Â· verify against the host console</div>
+      <div class="fp" id="fingerprint">â€”</div>
+      <p class="note">Compare this with the fingerprint printed by the host on your laptop.
+         If it differs, stop: you may be talking to the wrong machine.</p>
+    </div>
+  </div>
+
+  <div class="foot">
+    <span>â—ˆ LOOPBACK-ONLY PROXY</span><span>â—ˆ CERTIFICATE PINNING</span><span>â—ˆ AES-256-GCM VAULT</span>
+  </div>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  let probed = null;
+
+  async function loadState() {
+    try {
+      const res = await fetch('/__state');
+      const data = await res.json();
+      if (data.configured) {
+        $('url').value = data.server_url;
+        $('current').style.display = 'flex';
+        $('currentName').textContent = data.server_name || data.server_url;
+        $('trustBtn').textContent = 'Open channel';
+        $('trustBtn').disabled = false;
+        probed = {url: data.server_url, fingerprint: data.fingerprint, server_name: data.server_name};
+      }
+    } catch (err) { /* first run */ }
+  }
+
+  async function probe() {
+    const url = $('url').value.trim();
+    $('status').className = 'status';
+    $('status').textContent = 'Contacting hostâ€¦';
+    $('result').classList.remove('show');
+    $('trustBtn').disabled = true;
+    probed = null;
+    try {
+      const res = await fetch('/__probe?url=' + encodeURIComponent(url));
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || 'Could not reach that host.');
+      probed = data;
+      $('serverName').textContent = data.server_name;
+      $('serverVersion').textContent = `Terminus Secrets host v${data.version} Â· ${data.host}:${data.port}`;
+      $('fingerprint').textContent = data.fingerprint.replace(/(..)(?=.)/g, '$1:').toUpperCase();
+      $('result').classList.add('show');
+      $('status').textContent = 'Host reached. Compare the fingerprint, then trust it.';
+      $('trustBtn').disabled = false;
+      $('trustBtn').textContent = 'Trust & open';
+    } catch (err) {
+      $('status').className = 'status error';
+      $('status').textContent = err.message || 'Could not reach that host.';
+    }
+  }
+
+  async function trust() {
+    if (!probed) { probe(); return; }
+    $('trustBtn').disabled = true;
+    $('status').className = 'status';
+    $('status').textContent = 'Saving pinâ€¦';
+    try {
+      const res = await fetch('/__trust', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({url: probed.url, fingerprint: probed.fingerprint, server_name: probed.server_name})
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || 'Could not save the host.');
+      localStorage.removeItem('ts.token');
+      localStorage.removeItem('ts.device');
+      location.href = '/app/';
+    } catch (err) {
+      $('status').className = 'status error';
+      $('status').textContent = err.message;
+      $('trustBtn').disabled = false;
+    }
+  }
+
+  $('probeBtn').addEventListener('click', probe);
+  $('trustBtn').addEventListener('click', trust);
+  $('url').addEventListener('keydown', (e) => { if (e.key === 'Enter') probe(); });
+  $('changeBtn').addEventListener('click', () => {
+    $('current').style.display = 'none';
+    $('trustBtn').textContent = 'Trust & open';
+    $('url').focus();
+  });
+  loadState();
+</script>
+</body>
+</html>
+

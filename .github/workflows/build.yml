@@ -1,0 +1,89 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  release:
+    types: [created]
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    name: Android APK
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install SDK packages
+        shell: pwsh
+        run: |
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+
+      - name: Build signed APK
+        shell: pwsh
+        run: |
+          $env:ANDROID_SDK_ROOT = $env:ANDROID_HOME
+          powershell -ExecutionPolicy Bypass -File android-app/build-apk.ps1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TerminusSecrets-android
+          path: android-app/TerminusSecrets.apk
+          if-no-files-found: error
+
+  windows:
+    name: Windows EXE
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Electron dependencies
+        shell: pwsh
+        working-directory: windows-app/electron
+        env:
+          ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
+        run: npm install --no-audit --no-fund
+
+      - name: Build portable EXE
+        shell: pwsh
+        working-directory: windows-app/electron
+        env:
+          ELECTRON_BUILDER_BINARIES_MIRROR: https://npmmirror.com/mirrors/electron-builder-binaries/
+        run: npx electron-builder --win portable --publish never
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TerminusSecrets-windows
+          path: windows-app/electron/dist/TerminusSecrets.exe
+          if-no-files-found: error
+
+  release-assets:
+    name: Attach binaries to release
+    if: github.event_name == 'release'
+    needs: [android, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/TerminusSecrets-android/TerminusSecrets.apk
+            artifacts/TerminusSecrets-windows/TerminusSecrets.exe

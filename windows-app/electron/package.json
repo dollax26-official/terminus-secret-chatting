@@ -1,0 +1,46 @@
+{
+  "name": "terminus-secrets-desktop",
+  "productName": "Terminus Secrets",
+  "version": "1.0.0",
+  "private": true,
+  "description": "End-to-end encrypted chat client for a self-hosted Terminus Secrets relay",
+  "author": "Terminus Secrets",
+  "license": "UNLICENSED",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win portable"
+  },
+  "devDependencies": {
+    "electron": "44.9.2",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "com.terminus.secrets",
+    "productName": "Terminus Secrets",
+    "asar": true,
+    "files": [
+      "main.js",
+      "setup.html",
+      "icon.ico",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "icon.ico"
+    },
+    "portable": {
+      "artifactName": "TerminusSecrets.exe"
+    }
+  }
+}

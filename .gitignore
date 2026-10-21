@@ -1,0 +1,43 @@
+# runtime data and secrets
+server/data/
+server/certs/
+.devdata/
+.shotsdata/
+.testdata/
+.screens/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+build/
+dist/
+*.spec
+
+# Windows / Electron
+windows-app/electron/node_modules/
+windows-app/electron/dist/
+windows-app/electron/release/
+npm-debug.log*
+
+# Android
+android-app/build/
+android-app/keystore/
+android-app/*.idsig
+.gradle/
+local.properties
+*.jks
+*.keystore
+
+# Tooling
+.android-sdk/
+.downloads/
+node_modules/
+.DS_Store
+Thumbs.db
+
+# Keep the release folder (prebuilt APK/EXE) intentionally
+!release/
+!release/**

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Terminus Secrets">
+  <defs>
+    <linearGradient id="edge" x1="96" y1="96" x2="416" y2="416" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5FF2DA"/>
+      <stop offset="1" stop-color="#3EA8FF"/>
+    </linearGradient>
+    <radialGradient id="bg" cx="0" cy="0" r="1" gradientTransform="translate(256 210) rotate(90) scale(320)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0D1A22"/>
+      <stop offset="1" stop-color="#070B11"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <path d="M256 84 428 256 256 428 84 256Z" fill="none" stroke="url(#edge)" stroke-width="18" stroke-linejoin="round"/>
+  <circle cx="256" cy="222" r="42" fill="none" stroke="#3EE0C5" stroke-width="18"/>
+  <path d="M256 264v58" stroke="#3EE0C5" stroke-width="18" stroke-linecap="round"/>
+</svg>
