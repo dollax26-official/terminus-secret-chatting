@@ -31,6 +31,7 @@
     roomAdminRequired: false,
     devices: [],
     messages: [],
+    messageIds: new Set(),
     lastId: 0,
     currentRoom: localStorage.getItem(LS.room) || "general",
     unread: new Map(),
@@ -583,7 +584,9 @@
 
     const incoming = [];
     for (const row of data.messages || []) {
-      if (state.messages.some((m) => m.id === row.id)) continue;
+      const messageKey = String(row.id);
+      if (state.messageIds.has(messageKey)) continue;
+      state.messageIds.add(messageKey);
 
       // Our own message echoed back: reconcile the optimistic bubble instead
       // of adding a duplicate.
@@ -616,7 +619,7 @@
       state.messages.push(message);
       if (message.room_id === state.currentRoom) {
         if (ui.chatView.hidden) continue;
-        appendMessage(message);
+        appendMessage(message, { updateEmpty: false });
       } else {
         state.unread.set(message.room_id, (state.unread.get(message.room_id) || 0) + 1);
       }
@@ -773,7 +776,7 @@
     state.newBelow = 0;
     ui.jumpBtn.hidden = true;
     const list = state.messages.filter((m) => m.room_id === state.currentRoom);
-    for (const message of list) appendMessage(message, { forceScroll: false, track: false });
+    for (const message of list) appendMessage(message, { forceScroll: false, track: false, updateEmpty: false });
     updateEmptyState();
     scrollToBottom(false);
   }
@@ -848,7 +851,7 @@
 
     state.lastRendered.device = message.device_id;
     state.lastRendered.at = at;
-    updateEmptyState();
+    if (options.updateEmpty !== false) updateEmptyState();
 
     if (shouldStick) {
       scrollToBottom();
