@@ -42,11 +42,28 @@
 
     <form id="connectForm" autocomplete="off" novalidate>
       <div id="pairFields">
-        <label class="field">
-          <span>Pairing code</span>
-          <input id="codeInput" name="code" inputmode="text" spellcheck="false"
-                 placeholder="A1B2-C3D4" maxlength="9" autocomplete="one-time-code">
-        </label>
+        <div id="authSwitch" class="auth-switch" role="tablist" aria-label="Enrollment method">
+          <button type="button" class="active" data-auth="code" role="tab" aria-selected="true">Pairing code</button>
+          <button type="button" data-auth="master" role="tab" aria-selected="false">Master key</button>
+        </div>
+
+        <div id="codeField">
+          <label class="field">
+            <span>Pairing code</span>
+            <input id="codeInput" name="code" inputmode="text" spellcheck="false"
+                   placeholder="A1B2-C3D4" maxlength="9" autocomplete="one-time-code">
+          </label>
+        </div>
+
+        <div id="masterField" hidden>
+          <label class="field">
+            <span>Host master key</span>
+            <input id="masterKeyInput" name="master_key" class="mono" spellcheck="false"
+                   placeholder="paste the key printed by the host" autocomplete="off">
+          </label>
+          <p class="field-hint">Printed once by the host and stored in <span class="mono">server/data/master-key.txt</span>. It enrolls this device; it is not the vault passphrase.</p>
+        </div>
+
         <label class="field">
           <span>Name this device</span>
           <input id="deviceInput" name="device" maxlength="40" placeholder="Work laptop">
@@ -113,10 +130,10 @@
     </header>
 
     <div class="rail-head">
-      <span class="eyebrow">CHANNELS</span>
-      <button id="newRoomBtn" class="icon-btn" title="New channel" aria-label="New channel">+</button>
+      <span class="eyebrow">GROUPS</span>
+      <button id="newRoomBtn" class="icon-btn" title="New group" aria-label="New group">+</button>
     </div>
-    <nav id="roomList" class="rooms" aria-label="Channels"></nav>
+    <nav id="roomList" class="rooms" aria-label="Groups"></nav>
 
     <footer class="rail-foot">
       <div class="me-card">
@@ -209,17 +226,21 @@
 <dialog id="roomDialog" class="dialog">
   <form id="roomForm" class="dialog-inner" method="dialog">
     <header class="dialog-head">
-      <h3>New channel</h3>
+      <h3>New group</h3>
       <button value="cancel" class="icon-btn" aria-label="Close">×</button>
     </header>
     <label class="field">
-      <span>Channel name</span>
+      <span>Group name</span>
       <input id="roomNameInput" maxlength="32" placeholder="operations" autocomplete="off">
+    </label>
+    <label class="field">
+      <span>Description (optional)</span>
+      <input id="roomDescriptionInput" maxlength="120" placeholder="What belongs in this group?" autocomplete="off">
     </label>
     <p class="form-error" id="roomError" role="alert"></p>
     <footer class="dialog-foot">
       <button type="button" value="cancel" class="ghost-btn" data-close>Cancel</button>
-      <button type="submit" class="primary small">Create channel</button>
+      <button type="submit" class="primary small">Create group</button>
     </footer>
   </form>
 </dialog>
