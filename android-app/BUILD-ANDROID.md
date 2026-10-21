@@ -6,7 +6,7 @@ This folder contains the Android WebView shell and a command-line APK build scri
 
 - Windows 10/11
 - Java JDK 17
-- Android SDK command-line tools, including `aapt2`, `d8`, `zipalign`, `apksigner`, and Android platform 34
+- Android SDK command-line tools, including `aapt2`, `d8`, `zipalign`, `apksigner`, and Android 16 platform (API 36) and build-tools 36.0.0
 - A working connection to download SDK packages on first setup
 
 ## Build from CMD
@@ -23,7 +23,7 @@ If the SDK is already installed, ensure `ANDROID_HOME` or `ANDROID_SDK_ROOT` poi
 
 ## Android Studio alternative
 
-Open `android-app\` as a Gradle project. The source manifest and Java activity are under `app\src\main\`. Use Android Studio's Build > Build APK(s) to produce a debug APK, or use the script above for the command-line signed build.
+Open `android-app\` as a Gradle project. The source manifest and Java activity are under `app\src\main\`. Use Android Studio's Build > Build APK(s) to produce a debug APK, or use the script above for the command-line signed build. Google Play submissions require targeting API 36 as of August 31, 2026. The build script prompts for a signing password instead of using a hard-coded password. Keep the generated signing key and password backed up securely; losing them prevents updates signed with the same identity.
 
 ## Signing key warning
 
