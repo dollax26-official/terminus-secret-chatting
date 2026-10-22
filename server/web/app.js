@@ -324,6 +324,7 @@
     ui.roomDialog = $("#roomDialog");
     ui.roomForm = $("#roomForm");
     ui.roomNameInput = $("#roomNameInput");
+    ui.roomCategoryInput = $("#roomCategoryInput");
     ui.roomDescriptionInput = $("#roomDescriptionInput");
     ui.roomPrivateInput = $("#roomPrivateInput");
     ui.roomError = $("#roomError");
@@ -477,6 +478,7 @@
     $("#newRoomBtn").addEventListener("click", () => {
       ui.roomError.textContent = "";
       ui.roomNameInput.value = "";
+      ui.roomCategoryInput.value = "";
       ui.roomDescriptionInput.value = "";
       ui.roomDialog.showModal();
       setTimeout(() => ui.roomNameInput.focus(), 40);
@@ -937,19 +939,28 @@
     const dmFragment = document.createDocumentFragment();
     const channels = state.rooms.filter((room) => room.kind !== "dm" && room.server_id === state.activeServerId);
     const dms = state.rooms.filter((room) => room.kind === "dm");
+    const groupedChannels = new Map();
     for (const room of channels) {
-      const button = el("button", "room-btn" + (room.id === state.currentRoom ? " active" : ""));
-      button.type = "button";
-      button.append(el("span", "hash", "#"), el("span", "name", room.name));
-      const unread = state.unread.get(room.id) || 0;
-      if (unread > 0 && room.id !== state.currentRoom) button.append(el("span", "unread", unread > 99 ? "99+" : String(unread)));
-      button.addEventListener("click", () => selectRoom(room.id));
-      channelFragment.append(button);
-      if (room.name !== "general" && ["owner", "admin"].includes(state.servers.find((server) => server.id === state.activeServerId)?.role)) {
-        const manage = el("button", "room-manage", "···");
-        manage.type = "button"; manage.title = `Manage #${room.name}`;
-        manage.addEventListener("click", (event) => { event.stopPropagation(); manageRoom(room); });
-        channelFragment.append(manage);
+      const category = room.category || "";
+      if (!groupedChannels.has(category)) groupedChannels.set(category, []);
+      groupedChannels.get(category).push(room);
+    }
+    for (const [category, categoryRooms] of groupedChannels) {
+      if (category) channelFragment.append(el("div", "channel-category", category.toUpperCase()));
+      for (const room of categoryRooms) {
+        const button = el("button", "room-btn" + (room.id === state.currentRoom ? " active" : ""));
+        button.type = "button";
+        button.append(el("span", "hash", "#"), el("span", "name", room.name));
+        const unread = state.unread.get(room.id) || 0;
+        if (unread > 0 && room.id !== state.currentRoom) button.append(el("span", "unread", unread > 99 ? "99+" : String(unread)));
+        button.addEventListener("click", () => selectRoom(room.id));
+        channelFragment.append(button);
+        if (room.name !== "general" && ["owner", "admin"].includes(state.servers.find((server) => server.id === state.activeServerId)?.role)) {
+          const manage = el("button", "room-manage", "···");
+          manage.type = "button"; manage.title = `Manage #${room.name}`;
+          manage.addEventListener("click", (event) => { event.stopPropagation(); manageRoom(room); });
+          channelFragment.append(manage);
+        }
       }
     }
     for (const room of dms) {
@@ -1571,6 +1582,7 @@
       return;
     }
     const name = ui.roomNameInput.value.trim().replace(/\s+/g, " ");
+    const category = ui.roomCategoryInput.value.trim().replace(/\s+/g, " ");
     const description = ui.roomDescriptionInput.value.trim().replace(/\s+/g, " ");
     if (!name) {
       ui.roomError.textContent = "Give the group a name.";
@@ -1585,7 +1597,7 @@
       const res = await api("/api/rooms", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, description, server_id: state.activeServerId, private: ui.roomPrivateInput.checked }),
+        body: JSON.stringify({ name, description, category, server_id: state.activeServerId, private: ui.roomPrivateInput.checked }),
       });
       if (!res.ok) {
         let detail = "Could not create the group.";
