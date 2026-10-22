@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, dialog, shell } = require("electron");
+const { app, BrowserWindow, Menu, dialog, shell, session } = require("electron");
 const crypto = require("crypto");
 const fs = require("fs");
 const http = require("http");
@@ -114,7 +114,7 @@ function serveFile(response, filename, contentType) {
       "Cache-Control": "no-store",
       "X-Frame-Options": "DENY",
       "Content-Security-Policy":
-        "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data:",
+        "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data:; media-src 'self' data: blob:",
     });
     response.end(data);
   } catch (err) {
@@ -414,6 +414,15 @@ function createWindow(startPath) {
 }
 
 async function main() {
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    const allowed = isLocal(String(details?.requestingUrl || "")) &&
+      ["media", "display-capture"].includes(permission);
+    callback(allowed);
+  });
+  session.defaultSession.setPermissionCheckHandler((webContents, permission, requestingOrigin) => {
+    return isLocal(String(requestingOrigin || "")) &&
+      ["media", "display-capture"].includes(permission);
+  });
   if (!app.requestSingleInstanceLock()) {
     app.quit();
     return;
