@@ -297,6 +297,16 @@ def init_db(passphrase: str) -> None:
                 created_at TEXT NOT NULL,
                 PRIMARY KEY(message_id, account_id, emoji)
             );
+            CREATE TABLE IF NOT EXISTS call_signals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                call_id TEXT NOT NULL,
+                sender_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                target_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                kind TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_call_signals_target ON call_signals(target_account_id, id);
             CREATE INDEX IF NOT EXISTS idx_messages_id ON messages(id);
             CREATE INDEX IF NOT EXISTS idx_messages_room ON messages(room_id, id);
             """
@@ -557,6 +567,32 @@ class Handler(BaseHTTPRequestHandler):
             self._sync(device, max(after, 0), wait, updated_after, server_id)
             return
 
+        if path == "/api/calls/signals":
+            device = self._require_device()
+            if device is None:
+                return
+            try:
+                after = max(0, int((query.get("after") or ["0"])[0]))
+            except ValueError:
+                after = 0
+            with db() as conn:
+                rows = conn.execute(
+                    """SELECT s.id, s.call_id, s.kind, s.payload, s.created_at,
+                              a.username AS from_username
+                       FROM call_signals s
+                       JOIN accounts a ON a.id=s.sender_account_id
+                       WHERE s.target_account_id=? AND s.id>?
+                       ORDER BY s.id ASC LIMIT 100""",
+                    (device["account_id"], after),
+                ).fetchall()
+            self._send_json(200, {"signals": [
+                {"id": row["id"], "call_id": row["call_id"], "kind": row["kind"],
+                 "payload": json.loads(row["payload"]), "created_at": row["created_at"],
+                 "from_username": row["from_username"]}
+                for row in rows
+            ]})
+            return
+
         if path.startswith("/api/"):
             self._error(404, "not found")
             return
@@ -785,6 +821,49 @@ class Handler(BaseHTTPRequestHandler):
             if device is None:
                 return
             self._open_dm(device, body)
+            return
+
+        if path == "/api/calls/signal":
+            device = self._require_device()
+            if device is None:
+                return
+            target_username = str(body.get("to_username") or "").strip()
+            call_id = str(body.get("call_id") or "").strip()[:80]
+            kind = str(body.get("kind") or "").strip().lower()
+            payload = body.get("payload") or {}
+            if not target_username or not call_id or kind not in ("offer", "answer", "ice", "end", "decline"):
+                self._error(400, "invalid call signal")
+                return
+            if not isinstance(payload, dict) or len(json.dumps(payload, separators=(",", ":"))) > 48_000:
+                self._error(413, "call signal payload too large")
+                return
+            with db() as conn:
+                target = conn.execute(
+                    "SELECT id FROM accounts WHERE username=? COLLATE NOCASE",
+                    (target_username,),
+                ).fetchone()
+                if target is None or target["id"] == device["account_id"]:
+                    self._error(404, "recipient not found")
+                    return
+                shared_server = conn.execute(
+                    """SELECT 1 FROM server_members mine
+                       JOIN server_members theirs ON theirs.server_id=mine.server_id
+                       WHERE mine.account_id=? AND theirs.account_id=? LIMIT 1""",
+                    (device["account_id"], target["id"]),
+                ).fetchone()
+                if not shared_server:
+                    self._error(403, "calls are limited to users who share a server with you")
+                    return
+                conn.execute(
+                    """INSERT INTO call_signals(call_id, sender_account_id, target_account_id, kind, payload, created_at)
+                       VALUES(?,?,?,?,?,?)""",
+                    (call_id, device["account_id"], target["id"], kind,
+                     json.dumps(payload, separators=(",", ":")), now_iso()),
+                )
+                conn.execute("DELETE FROM call_signals WHERE created_at < ?", (
+                    datetime.fromtimestamp(time.time() - 86400, timezone.utc).isoformat(),
+                ))
+            self._send_json(200, {"ok": True})
             return
 
         if path == "/api/typing":
@@ -1615,8 +1694,15 @@ def main() -> int:
     ensure_certificate(cert_path, key_path)
     CERT_FINGERPRINT = cert_fingerprint(cert_path)
 
-    PAIR_CODE = secrets.token_hex(2).upper() + "-" + secrets.token_hex(2).upper()
-    (DATA_DIR / "pairing-code.txt").write_text(PAIR_CODE + "\n", encoding="utf-8")
+    # Keep the enrollment code stable across host restarts and network changes.
+    # Delete pairing-code.txt to rotate it manually; the vault passphrase and
+    # master key are likewise stored in the persistent data directory.
+    pairing_path = DATA_DIR / "pairing-code.txt"
+    if pairing_path.exists():
+        PAIR_CODE = pairing_path.read_text(encoding="utf-8").strip()
+    else:
+        PAIR_CODE = secrets.token_hex(2).upper() + "-" + secrets.token_hex(2).upper()
+        pairing_path.write_text(PAIR_CODE + "\n", encoding="utf-8")
 
     IPv6ThreadingHTTPServer.allow_reuse_address = True
     httpd = IPv6ThreadingHTTPServer(("::", args.port), Handler)
