@@ -186,6 +186,10 @@ class HostSettingsApp:
         self.stop_button.pack(side="right", padx=(0, 8))
         ttk.Label(outer, text=f"Settings: {CONFIG}", style="Muted.TLabel", wraplength=650).pack(anchor="w", pady=(14, 0))
         self._bind_scroll_events(outer)
+        # Fallback for Tk themes/widgets that swallow wheel events rather than
+        # letting them reach their parent scroll container.
+        for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            self.root.bind_all(sequence, self._on_mousewheel, add="+")
 
     def _update_scroll_region(self, _event=None) -> None:
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
