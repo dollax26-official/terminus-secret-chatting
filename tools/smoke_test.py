@@ -26,6 +26,7 @@ DATA = ROOT / ".testdata"
 PORT = 9553
 BASE = f"https://127.0.0.1:{PORT}"
 CTX = ssl._create_unverified_context()
+ACCOUNT_TOKEN = ""
 
 
 def request(path, method="GET", token=None, payload=None):
@@ -36,6 +37,8 @@ def request(path, method="GET", token=None, payload=None):
         headers["Content-Type"] = "application/json"
     if token:
         headers["Authorization"] = f"Bearer {token}"
+    if ACCOUNT_TOKEN:
+        headers["X-Account-Token"] = ACCOUNT_TOKEN
     req = urllib.request.Request(BASE + path, data=data, headers=headers, method=method)
     with urllib.request.urlopen(req, context=CTX, timeout=30) as response:
         return response.status, dict(response.headers), response.read()
@@ -82,6 +85,16 @@ def main():
         health = json.loads(body)
         assert health["app"] == "terminus-secrets"
         assert health["fingerprint"].count(":") == 31
+
+        global ACCOUNT_TOKEN
+        _, _, account_body = request(
+            "/api/accounts/register",
+            method="POST",
+            payload={"username": "smoke_tester", "password": "smoke-test-password-123"},
+        )
+        account = json.loads(account_body)
+        ACCOUNT_TOKEN = account["account_token"]
+        assert account["account"]["username"] == "smoke_tester"
 
         code = (DATA / "pairing-code.txt").read_text().strip()
         assert len(code) == 9
