@@ -1886,6 +1886,8 @@
 
   async function handleCallSignal(signal) {
     const payload = signal.payload || {};
+    const ageMs = Date.now() - Date.parse(signal.created_at || "");
+    if (Number.isFinite(ageMs) && ageMs > 120000) return; // never replay stale ringing/signals
     let call = state.activeCall;
     if (signal.kind === "offer") {
       if (call || !window.confirm(signal.from_username + " is calling (" + (payload.mode || "audio") + "). Answer?")) {
