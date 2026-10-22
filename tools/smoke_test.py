@@ -124,6 +124,15 @@ def main():
         device_a = json.loads(body)
         assert device_a["token"].startswith("ts_")
 
+        _, _, reconnect_body = request(
+            "/api/pair", method="POST", token=device_a["token"],
+            payload={"code": code, "device_name": "Windows desk"},
+        )
+        reconnected = json.loads(reconnect_body)
+        assert reconnected["token"] == device_a["token"]
+        assert reconnected["device_id"] == device_a["device_id"]
+        assert reconnected["reconnected"] is True
+
         _, _, body = request(
             "/api/pair", method="POST", payload={"code": code, "device_name": "Android phone"}
         )
