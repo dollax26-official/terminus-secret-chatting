@@ -1012,3 +1012,21 @@ button:focus:not(:focus-visible) { outline: none; }
 .saved-host-btn { color:var(--muted); }
 .saved-host-btn .hash { color:var(--blue); }
 .host-empty { padding:7px 10px 10px; color:var(--faint); font-size:11px; }
+
+
+/* UI pass: reliable touch targets and clearer sidebar actions on phone and desktop. */
+.icon-btn, .attach-btn, .send-btn { min-width: 40px; min-height: 40px; }
+.room-btn { min-height: 40px; }
+.room-manage { min-width: 40px; min-height: 36px; }
+.server-actions { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.server-actions .icon-btn { flex: 0 0 36px; min-width: 36px; min-height: 36px; }
+.saved-host-btn { overflow: hidden; }
+.saved-host-btn .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dialog :is(input, textarea, select) { max-width: 100%; }
+button:disabled { cursor: not-allowed; opacity: .48; }
+@media (max-width: 460px) {
+  .server-actions { gap: 2px; }
+  .server-actions .icon-btn { flex-basis: 34px; min-width: 34px; min-height: 40px; }
+  .stage-head .call-action { min-width: 36px; padding: 0 6px; }
+  .chat-search { min-width: 0; }
+}
