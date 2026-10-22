@@ -155,6 +155,72 @@ def main():
         empty = get_json(f"/api/sync?after={sync['last_id']}&wait=0", token=device_b["token"])
         assert empty["messages"] == []
 
+        # Exercise multi-server channels, private membership, roles, and DMs.
+        account1_token = ACCOUNT_TOKEN
+        _, _, server_body = request(
+            "/api/servers/create", method="POST",
+            payload={"name": "Protocol Test Server", "description": "smoke test"},
+        )
+        server = json.loads(server_body)
+        assert server["role"] == "owner" and server["invite_code"]
+
+        _, _, public_body = request(
+            "/api/rooms", method="POST", token=device_a["token"],
+            payload={"server_id": server["id"], "name": "announcements", "category": "Community"},
+        )
+        public_room = json.loads(public_body)
+        assert public_room["category"] == "Community" and public_room["kind"] == "text"
+
+        _, _, private_body = request(
+            "/api/rooms", method="POST", token=device_a["token"],
+            payload={"server_id": server["id"], "name": "staff", "category": "Staff", "private": True},
+        )
+        private_room = json.loads(private_body)
+        assert private_room["kind"] == "private"
+
+        _, _, other_body = request(
+            "/api/accounts/register", method="POST",
+            payload={"username": "smoke_other", "password": "another-smoke-password-456"},
+        )
+        other_account = json.loads(other_body)
+        ACCOUNT_TOKEN = other_account["account_token"]
+        request("/api/servers/join", method="POST", payload={"invite_code": server["invite_code"]})
+        _, _, other_device_body = request(
+            "/api/pair", method="POST", payload={"code": code, "device_name": "Other phone"}
+        )
+        other_device = json.loads(other_device_body)
+
+        ACCOUNT_TOKEN = account1_token
+        _, _, dm_body = request(
+            "/api/dm/open", method="POST", token=device_a["token"],
+            payload={"username": "smoke_other"},
+        )
+        dm = json.loads(dm_body)
+        dm_nonce, dm_ciphertext = encrypt(key, dm["id"], "private direct message")
+        request(
+            "/api/messages", method="POST", token=device_a["token"],
+            payload={"room_id": dm["id"], "client_msg_id": "dm-smoke-1",
+                     "nonce": dm_nonce, "ciphertext": dm_ciphertext},
+        )
+
+        _, _, role_body = request(
+            "/api/servers/role", method="POST", token=device_a["token"],
+            payload={"server_id": server["id"], "username": "smoke_other", "role": "admin"},
+        )
+        assert json.loads(role_body)["role"] == "admin"
+
+        ACCOUNT_TOKEN = other_account["account_token"]
+        other_sync = get_json("/api/sync?after=0&wait=0", token=other_device["token"])
+        other_room_ids = {room["id"] for room in other_sync["rooms"]}
+        assert public_room["id"] in other_room_ids
+        assert private_room["id"] not in other_room_ids
+        assert dm["id"] in other_room_ids
+        dm_rows = [row for row in other_sync["messages"] if row["room_id"] == dm["id"]]
+        assert len(dm_rows) == 1
+        assert decrypt(key, dm["id"], dm_rows[0]["nonce"], dm_rows[0]["ciphertext"]) == "private direct message"
+        assert next(server_row for server_row in other_sync["servers"] if server_row["id"] == server["id"])["role"] == "admin"
+        ACCOUNT_TOKEN = account1_token
+
         # Vault check blob round-trip (the web client stores a known marker).
         marker_nonce = os.urandom(12)
         marker_ct = AESGCM(key).encrypt(
