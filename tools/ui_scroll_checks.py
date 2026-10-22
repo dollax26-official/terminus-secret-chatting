@@ -7,8 +7,8 @@ HOST_UI = (ROOT / "server" / "settings_app.py").read_text(encoding="utf-8")
 
 required_css = (
     "#connectView.connect", "#chatView .messages", "#chatView .rail",
-    "#chatView .rooms", "overflow-y:auto", "-webkit-overflow-scrolling:touch",
-    "touch-action:pan-y", ".messages > * { flex-shrink:0; }",
+    "#chatView .rooms", "overflow-y: auto;", "-webkit-overflow-scrolling: touch;",
+    "touch-action: pan-y;", ".messages > * {", "flex-shrink: 0;",
 )
 required_host = (
     "self.canvas = tk.Canvas",
