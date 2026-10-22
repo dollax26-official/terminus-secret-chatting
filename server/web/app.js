@@ -923,6 +923,7 @@
     ui.inviteServerBtn.title = current ? "Copy/share server invite code" : "Join or create a server first";
     ui.manageRolesBtn.disabled = !current || current.role !== "owner";
     ui.manageRolesBtn.title = current?.role === "owner" ? "Promote or demote server members" : "Only the server owner can manage roles";
+    $("#newRoomBtn").disabled = !current || !["owner", "admin"].includes(current.role);
   }
 
   async function createServer() {
@@ -1094,7 +1095,8 @@
       }
       button.addEventListener("click", () => selectRoom(room.id));
       fragment.append(button);
-      if (room.id !== "general" && room.kind !== "dm") {
+      const activeServer = state.servers.find((server) => server.id === state.currentServer);
+      if (room.id !== "general" && room.kind !== "dm" && activeServer && ["owner", "admin"].includes(activeServer.role)) {
         const manage = el("button", "room-manage", "···");
         manage.type = "button";
         manage.title = `Manage ${room.name}`;
