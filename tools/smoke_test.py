@@ -261,6 +261,14 @@ def main():
         third_device = json.loads(third_device_body)
 
         ACCOUNT_TOKEN = other_account["account_token"]
+        try:
+            request(
+                "/api/rooms/member", method="POST", token=other_device["token"],
+                payload={"room_id": private_room["id"], "username": "smoke_third"},
+            )
+            raise AssertionError("ordinary member managed private-channel access")
+        except urllib.error.HTTPError as exc:
+            assert exc.code == 403, exc.code
         request(
             "/api/rooms/member", method="POST", token=master_device["token"],
             payload={"room_id": private_room["id"], "username": "smoke_third"},
