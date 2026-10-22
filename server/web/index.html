@@ -147,11 +147,26 @@
       <span class="live-dot" id="railLive" title="Connected"></span>
     </header>
 
-    <div class="rail-head">
-      <span class="eyebrow">GROUPS</span>
-      <button id="newRoomBtn" class="icon-btn" title="New group" aria-label="New group">+</button>
+    <div class="rail-head server-head">
+      <span class="eyebrow">SERVERS</span>
+      <div class="server-actions">
+        <button id="createServerBtn" class="icon-btn" title="Create server" aria-label="Create server">+</button>
+        <button id="joinServerBtn" class="icon-btn" title="Join with invite" aria-label="Join server">↗</button>
+        <button id="inviteServerBtn" class="icon-btn" title="Show invite code" aria-label="Show invite code">ⓘ</button>
+        <button id="manageRolesBtn" class="icon-btn" title="Manage member roles" aria-label="Manage member roles">♙</button>
+      </div>
     </div>
-    <nav id="roomList" class="rooms" aria-label="Groups"></nav>
+    <select id="serverSelect" class="server-select" aria-label="Active server"></select>
+    <div class="rail-head channel-head">
+      <span class="eyebrow">CHANNELS</span>
+      <button id="newRoomBtn" class="icon-btn" title="New channel" aria-label="New channel">+</button>
+    </div>
+    <nav id="roomList" class="rooms" aria-label="Channels"></nav>
+    <div class="rail-head dm-head">
+      <span class="eyebrow">DIRECT MESSAGES</span>
+      <button id="newDmBtn" class="icon-btn" title="New direct message" aria-label="New direct message">+</button>
+    </div>
+    <nav id="dmList" class="rooms dm-list" aria-label="Direct messages"></nav>
 
     <footer class="rail-foot">
       <div class="me-card">
@@ -174,6 +189,9 @@
         <h2 id="roomTitle"># general</h2>
         <p id="roomMeta">Establishing secure session…</p>
       </div>
+      <label class="chat-search" aria-label="Search messages">
+        <span>⌕</span><input id="searchInput" type="search" placeholder="Search messages…" autocomplete="off">
+      </label>
       <div class="head-badges">
         <span class="badge lock-badge">
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
@@ -193,6 +211,8 @@
     </div>
 
     <form id="composer" class="composer" autocomplete="off">
+      <button id="attachBtn" class="attach-btn" type="button" title="Attach a file" aria-label="Attach a file">＋</button>
+      <input id="fileInput" type="file" hidden>
       <textarea id="input" rows="1" placeholder="Message #general"
                 aria-label="Message" maxlength="8000"></textarea>
       <button id="sendBtn" class="send-btn" type="submit" aria-label="Send message">
