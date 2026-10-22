@@ -1,6 +1,6 @@
 /* Terminus Secrets — client logic
-   Crypto: PBKDF2-HMAC-SHA256 (600k) -> AES-256-GCM, all in the browser.
-   The host only ever receives base64 ciphertext. */
+   Chat text/attachments are encrypted with AES-GCM before upload. The host
+   also handles account/server metadata and temporary WebRTC signaling payloads. */
 
 (() => {
   "use strict";
