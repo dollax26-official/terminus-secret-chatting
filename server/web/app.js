@@ -1850,7 +1850,6 @@
       localStorage.removeItem(LS.accountToken);
       localStorage.removeItem(LS.account);
       localStorage.removeItem("ts.forcePair");
-      setAuthMethod("code");
     }
     if (packed || params.has("ts_force_pair")) history.replaceState(null, "", location.pathname);
   }
