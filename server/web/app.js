@@ -467,6 +467,7 @@
     $("#createServerBtn").addEventListener("click", createServer);
     $("#joinServerBtn").addEventListener("click", joinServer);
     $("#inviteServerBtn").addEventListener("click", showServerInvite);
+    $("#manageServerBtn").addEventListener("click", manageServer);
     $("#manageRolesBtn").addEventListener("click", manageServerRoles);
     $("#newDmBtn").addEventListener("click", openDirectMessage);
     ui.searchInput.addEventListener("input", () => {
@@ -1569,6 +1570,47 @@
     const server = state.servers.find((item) => item.id === state.activeServerId);
     if (!server) { toast("Create or join a server first.", "error"); return; }
     window.alert(`${server.name}\\nInvite code: ${server.invite_code || "Unavailable"}\\nShare this code only with people you want to join.`);
+  }
+
+  async function manageServer() {
+    const server = state.servers.find((item) => item.id === state.activeServerId);
+    if (!server) { toast("Create or join a server first.", "error"); return; }
+    if (server.role !== "owner") { toast("Only the server owner can edit or delete this server.", "error"); return; }
+    const choice = window.prompt(`Manage "${server.name}": type rename or delete`);
+    if (choice === null) return;
+    const action = choice.trim().toLowerCase();
+    if (action !== "rename" && action !== "delete") { toast("Choose rename or delete.", "error"); return; }
+    const payload = { action, server_id: server.id };
+    if (action === "rename") {
+      payload.name = window.prompt("Server name:", server.name);
+      if (payload.name === null) return;
+      payload.name = payload.name.trim().replace(/\\s+/g, " ");
+      if (!payload.name) { toast("A server name is required.", "error"); return; }
+      payload.description = window.prompt("Server description:", server.description || "");
+      if (payload.description === null) return;
+    } else if (!window.confirm(`Delete "${server.name}" and all of its channels and messages? This cannot be undone.`)) {
+      return;
+    }
+    try {
+      const res = await api("/api/servers/manage", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Server management failed.");
+      await refreshSync();
+      if (action === "delete") {
+        state.messages = state.messages.filter((message) => state.rooms.some((room) => room.id === message.room_id));
+        if (!state.rooms.some((room) => room.id === state.currentRoom)) {
+          const next = state.rooms.find((room) => room.kind !== "dm" && room.server_id === state.activeServerId) || state.rooms[0];
+          state.currentRoom = next?.id || "general";
+          localStorage.setItem(LS.room, state.currentRoom);
+        }
+        renderRooms(); updateHeader(); renderMessages();
+        toast(`Deleted ${server.name}.`);
+      } else {
+        toast("Server updated.");
+      }
+    } catch (err) { toast(err.message || "Server management failed.", "error"); }
   }
 
   async function manageServerRoles() {
