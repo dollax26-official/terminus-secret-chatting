@@ -1937,7 +1937,7 @@
     try {
       if (mode === "screen") {
         if (!navigator.mediaDevices.getDisplayMedia) throw new Error("Screen sharing is not supported by this client. Android may require a native MediaProjection implementation.");
-        stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+        stream = await navigator.mediaDevices.getDisplayMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 15 } }, audio: true });
         try {
           const mic = await navigator.mediaDevices.getUserMedia({ audio: true });
           mic.getAudioTracks().forEach((track) => stream.addTrack(track));
@@ -1945,7 +1945,7 @@
       } else {
         stream = await navigator.mediaDevices.getUserMedia({
           audio: true,
-          video: mode === "video" ? { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 24, max: 30 } } : false,
+          video: mode === "video" ? { width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 20, max: 24 } } : false,
         });
       }
       const callId = uid();
@@ -2026,7 +2026,7 @@
         if (!navigator.mediaDevices?.getUserMedia) throw new Error("Microphone/camera access is unavailable in this client.");
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: true,
-          video: mode === "video" ? { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 24, max: 30 } } : false,
+          video: mode === "video" ? { width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 20, max: 24 } } : false,
         });
         call = { id: signal.call_id, peerUsername: signal.from_username, mode, pc: new RTCPeerConnection(callPeerConfig()), stream, pendingIce: [], started: false };
         state.activeCall = call;
