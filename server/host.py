@@ -59,6 +59,13 @@ CERT_FINGERPRINT = ""
 SERVER_NAME = socket.gethostname()
 LAN_IP = "127.0.0.1"
 PUBLIC_URL = ""
+SERVER_FEATURES = {
+    "photos": True,
+    "voice_messages": True,
+    "voice_calls": True,
+    "video_calls": True,
+    "screen_sharing": True,
+}
 MESSAGE_COND = threading.Condition()
 PAIR_LOCK = threading.Lock()
 PAIR_ATTEMPTS: dict[str, list[float]] = {}
@@ -226,6 +233,7 @@ def init_db(passphrase: str) -> None:
             CREATE TABLE IF NOT EXISTS accounts (
                 id TEXT PRIMARY KEY,
                 username TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                display_name TEXT NOT NULL DEFAULT '',
                 password_salt BLOB NOT NULL,
                 password_hash BLOB NOT NULL,
                 created_at TEXT NOT NULL
@@ -310,6 +318,11 @@ def init_db(passphrase: str) -> None:
             CREATE INDEX IF NOT EXISTS idx_messages_room ON messages(room_id, id);
             """
         )
+        account_columns = [row["name"] for row in conn.execute("PRAGMA table_info(accounts)")]
+        if "display_name" not in account_columns:
+            conn.execute("ALTER TABLE accounts ADD COLUMN display_name TEXT NOT NULL DEFAULT ''")
+        conn.execute("UPDATE accounts SET display_name=username WHERE display_name='' OR display_name IS NULL")
+
         message_columns = [row["name"] for row in conn.execute("PRAGMA table_info(messages)")]
         for column, definition in (
             ("edited_at", "TEXT"),
@@ -512,6 +525,11 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Location", "/app/")
             self.send_header("Content-Length", "0")
             self.end_headers()
+            return
+
+        if path == "/api/config":
+            # Public, non-secret capability flags used by the shared clients.
+            self._send_json(200, {"server_name": SERVER_NAME, "features": SERVER_FEATURES})
             return
 
         if path == "/api/health":
@@ -1074,6 +1092,7 @@ class Handler(BaseHTTPRequestHandler):
     def _account_register(self, body: dict) -> None:
         username = str(body.get("username") or "").strip()
         password = str(body.get("password") or "")
+        display_name = " ".join(str(body.get("display_name") or username).split())[:32] or username
         if not (3 <= len(username) <= 24) or not all(ch.isalnum() or ch in "_-" for ch in username):
             self._error(400, "Username must be 3–24 characters using letters, numbers, _ or -.")
             return
@@ -1086,8 +1105,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             with db() as conn:
                 conn.execute(
-                    "INSERT INTO accounts(id, username, password_salt, password_hash, created_at) VALUES(?,?,?,?,?)",
-                    (account_id, username, salt, password_hash, now_iso()),
+                    "INSERT INTO accounts(id, username, display_name, password_salt, password_hash, created_at) VALUES(?,?,?,?,?,?)",
+                    (account_id, username, display_name, salt, password_hash, now_iso()),
                 )
         except sqlite3.IntegrityError:
             self._error(409, "That username is already registered.")
@@ -1100,14 +1119,14 @@ class Handler(BaseHTTPRequestHandler):
                     "INSERT OR IGNORE INTO server_members(server_id, account_id, role, joined_at) VALUES(?,?,?,?)",
                     (server["id"], account_id, "owner", now_iso()),
                 )
-        self._create_account_session(account_id, username)
+        self._create_account_session(account_id, username, display_name)
 
     def _account_login(self, body: dict) -> None:
         username = str(body.get("username") or "").strip()
         password = str(body.get("password") or "")
         with db() as conn:
             account = conn.execute(
-                "SELECT id, username, password_salt, password_hash FROM accounts WHERE username=? COLLATE NOCASE",
+                "SELECT id, username, display_name, password_salt, password_hash FROM accounts WHERE username=? COLLATE NOCASE",
                 (username,),
             ).fetchone()
         # Perform a KDF even for unknown usernames to reduce timing-based enumeration.
@@ -1117,9 +1136,9 @@ class Handler(BaseHTTPRequestHandler):
         if account is None or not hmac.compare_digest(actual, expected):
             self._error(401, "Incorrect username or password.")
             return
-        self._create_account_session(account["id"], account["username"])
+        self._create_account_session(account["id"], account["username"], account["display_name"] or account["username"])
 
-    def _create_account_session(self, account_id: str, username: str) -> None:
+    def _create_account_session(self, account_id: str, username: str, display_name: str = "") -> None:
         token = "ta_" + secrets.token_urlsafe(40)
         with db() as conn:
             conn.execute(
@@ -1128,7 +1147,7 @@ class Handler(BaseHTTPRequestHandler):
             )
         self._send_json(200, {
             "account_token": token,
-            "account": {"id": account_id, "username": username},
+            "account": {"id": account_id, "username": username, "display_name": display_name or username},
             "expires_in": 30 * 24 * 60 * 60,
         })
 
@@ -1724,12 +1743,13 @@ class IPv6ThreadingHTTPServer(ThreadingHTTPServer):
         )
         super().server_bind()
 def main() -> int:
-    global DATA_DIR, DB_PATH, PAIR_CODE, MASTER_KEY, CERT_FINGERPRINT, LAN_IP, SERVER_NAME, PUBLIC_URL
+    global DATA_DIR, DB_PATH, PAIR_CODE, MASTER_KEY, CERT_FINGERPRINT, LAN_IP, SERVER_NAME, PUBLIC_URL, SERVER_FEATURES
 
     parser = argparse.ArgumentParser(description="Terminus Secrets host")
     parser.add_argument("--host", default="0.0.0.0", help="bind address (default 0.0.0.0)")
     parser.add_argument("--port", type=int, default=8443, help="HTTPS port (default 8443)")
     parser.add_argument("--data-dir", default=str(DEFAULT_DATA_DIR))
+    parser.add_argument("--config", default="", help="JSON host settings file written by settings_app.py")
     parser.add_argument("--public-url", default=os.environ.get("TERMINUS_PUBLIC_URL", ""),
                         help="public HTTPS URL or IP clients use from outside this network")
     parser.add_argument("--rotate-master-key", action="store_true",
@@ -1740,6 +1760,18 @@ def main() -> int:
 
     DATA_DIR = Path(args.data_dir).resolve()
     DB_PATH = DATA_DIR / "terminus.db"
+    config_path = Path(args.config).resolve() if args.config else DATA_DIR / "server-settings.json"
+    try:
+        config_data = json.loads(config_path.read_text(encoding="utf-8")) if config_path.exists() else {}
+        raw_features = config_data.get("features", {}) if isinstance(config_data, dict) else {}
+        if not isinstance(raw_features, dict):
+            raw_features = {}
+        SERVER_FEATURES = {
+            key: bool(raw_features.get(key, True))
+            for key in ("photos", "voice_messages", "voice_calls", "video_calls", "screen_sharing")
+        }
+    except (OSError, json.JSONDecodeError) as exc:
+        parser.error(f"cannot read host settings {config_path}: {exc}")
     LAN_IP = local_ip()
     SERVER_NAME = socket.gethostname()
     PUBLIC_URL = args.public_url.strip().rstrip("/")

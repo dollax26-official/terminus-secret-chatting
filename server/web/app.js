@@ -66,6 +66,7 @@
     voiceChunks: [],
     voiceStopTimer: null,
     savedHosts: [],
+    features: { photos: true, voice_messages: true, voice_calls: true, video_calls: true, screen_sharing: true },
   };
 
   const ui = {};
@@ -377,6 +378,7 @@
     ui.accountBtn.textContent = state.accountMode === "login" ? "Sign in" : "Create account";
     ui.accountModeBtn.textContent = state.accountMode === "login" ? "Need an account? Create one" : "Already registered? Sign in";
     ui.accountPassword.autocomplete = state.accountMode === "login" ? "current-password" : "new-password";
+    if (ui.accountDisplayName) ui.accountDisplayName.closest(".field").hidden = state.accountMode === "login";
     ui.accountError.textContent = "";
   }
 
@@ -385,6 +387,7 @@
     ui.accountError.textContent = "";
     const username = ui.accountUsername.value.trim();
     const password = ui.accountPassword.value;
+    const displayName = ui.accountDisplayName?.value.trim() || username;
     if (!username || !password) {
       ui.accountError.textContent = "Enter both your username and password.";
       return;
@@ -395,7 +398,7 @@
       const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, password, display_name: displayName }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Account authentication failed.");
@@ -408,7 +411,7 @@
       ui.accountPassword.value = "";
       if (state.token) setMode("unlock");
       else setMode("pair");
-      toast(`Signed in as ${state.account.username}.`);
+      toast(`Signed in as ${state.account.display_name || state.account.username}.`);
     } catch (err) {
       ui.accountError.textContent = err.message || "Account authentication failed.";
     } finally {
@@ -446,6 +449,7 @@
     ui.accountModeBtn = $("#accountModeBtn");
     ui.accountUsername = $("#accountUsername");
     ui.accountPassword = $("#accountPassword");
+    ui.accountDisplayName = $("#accountDisplayName");
     ui.accountForm.addEventListener("submit", onAccountSubmit);
     ui.accountModeBtn.addEventListener("click", toggleAccountMode);
     ui.connectForm.addEventListener("submit", onConnect);
@@ -2333,11 +2337,34 @@
     }
   }
 
+  async function loadServerFeatures() {
+    try {
+      const response = await fetch("/api/config", { cache: "no-store" });
+      if (!response.ok) return;
+      const config = await response.json();
+      state.features = { ...state.features, ...(config.features || {}) };
+      const controls = [
+        [ui.attachBtn, state.features.photos],
+        [ui.fileInput, state.features.photos],
+        [ui.voiceMessageBtn, state.features.voice_messages],
+        [ui.audioCallBtn, state.features.voice_calls],
+        [ui.videoCallBtn, state.features.video_calls],
+        [ui.screenCallBtn, state.features.screen_sharing],
+        [ui.shareCallBtn, state.features.screen_sharing],
+      ];
+      for (const [control, enabled] of controls) if (control) control.hidden = !enabled;
+    } catch (_) {
+      // Older hosts remain compatible: leave the legacy controls visible.
+    }
+  }
+
   /* ------------------------------------------------------------------- init */
   async function init() {
     await restoreSavedHostsFromUrl();
     cacheUi();
     bindEvents();
+    if (ui.accountDisplayName) ui.accountDisplayName.closest(".field").hidden = true;
+    await loadServerFeatures();
     ui.deviceInput.value = state.deviceName;
     ui.accountTitle = $("#accountTitle");
     ui.accountPanel.hidden = Boolean(state.accountToken);

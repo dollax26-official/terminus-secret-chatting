@@ -49,6 +49,10 @@
           <input id="accountUsername" name="username" maxlength="24" minlength="3" autocomplete="username" placeholder="your_username" required>
         </label>
         <label class="field">
+          <span>Display name <small>(shown to others; not unique)</small></span>
+          <input id="accountDisplayName" name="display_name" maxlength="32" autocomplete="nickname" placeholder="How others see you">
+        </label>
+        <label class="field">
           <span>Password</span>
           <input id="accountPassword" name="password" type="password" minlength="10" maxlength="256" autocomplete="current-password" required>
         </label>
@@ -56,6 +60,7 @@
         <p id="accountError" class="form-error" role="alert"></p>
       </form>
       <button id="accountModeBtn" class="linkish" type="button">Need an account? Create one</button>
+      <p class="field-hint">Usernames are unique on this host. Display names may be reused by any number of accounts.</p>
     </section>
 
     <form id="connectForm" autocomplete="off" novalidate hidden>

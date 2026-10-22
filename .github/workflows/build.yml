@@ -22,8 +22,8 @@ jobs:
         run: python -m pip install -r server/requirements.txt
       - name: Run protocol smoke test
         run: python tools/smoke_test.py
-      - name: Compile host server
-        run: python -m py_compile server/host.py
+      - name: Compile host server and settings manager
+        run: python -m py_compile server/host.py server/settings_app.py
 
   windows-app-build:
     name: Build Windows portable EXE

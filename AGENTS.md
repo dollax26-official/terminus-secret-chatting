@@ -4,6 +4,8 @@
 Before changing the shared web client, consult [UI Guides & Agent Rules](https://github.com/strongeron/ui-guides-agent-rules) and search its [principle index](https://ui-guides-agent-rules.netlify.app/principles/index.md) for the surfaces actually touched. Use only relevant individual rules and keep attribution to their original authors.
 
 ## Required UI behavior
+- **MUST** use the UI Guides rules as a targeted checklist: inspect form, button, dialog, keyboard-focus, responsive-layout, media, and performance rules relevant to the changed components; don't load the entire corpus.
+- **MUST** test the shared client at narrow Android widths and desktop widths; don't rely on screenshots or syntax checks alone.
 - **MUST** use semantic buttons for actions, labels for inputs, and visible keyboard focus; do not make clickable `div` elements.
 - **MUST** give forms an explicit submit path, inline error text, disabled/loading feedback while a request is in flight, and preserve typed values after recoverable failures.
 - **MUST** keep actions available on narrow Android WebView screens; test at 360 px width and desktop widths. Use touch targets of at least 40 px where layout permits.

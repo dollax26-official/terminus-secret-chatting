@@ -77,15 +77,27 @@ The host stores `nonce`, `ciphertext`, `room_id`, `device_id`, and a timestamp. 
 
 ## Quick start
 
-### 1. Start the host on the laptop
+### 1. Configure and start the host on the laptop
 
 Requirements: Python 3.11+.
+
+For the graphical host manager (recommended on Windows):
 
 ```powershell
 cd server
 python -m pip install -r requirements.txt
+python settings_app.py
+```
+
+Choose whether photos, voice notes, voice calls, video calls, and screen sharing should be shown in the shared clients. The manager saves settings in `server/data/server-settings.json`, estimates RAM use, and starts/stops the host with the **Start server** button. The estimate is a planning guide, not a benchmark; actual client-side media memory varies by device and call conditions.
+
+To run without the graphical manager:
+
+```powershell
 python host.py --port 8443
 ```
+
+The vault passphrase and pairing code persist in the data folder across host restarts and network changes. The network address can still change, and remote clients need the current reachable address or a configured hostname.
 
 The first run creates:
 

@@ -85,16 +85,22 @@ def main():
         health = json.loads(body)
         assert health["app"] == "terminus-secrets"
         assert health["fingerprint"].count(":") == 31
+        config = get_json("/api/config")
+        assert config["features"] == {
+            "photos": True, "voice_messages": True, "voice_calls": True,
+            "video_calls": True, "screen_sharing": True,
+        }
 
         global ACCOUNT_TOKEN
         _, _, account_body = request(
             "/api/accounts/register",
             method="POST",
-            payload={"username": "smoke_tester", "password": "smoke-test-password-123"},
+            payload={"username": "smoke_tester", "password": "smoke-test-password-123", "display_name": "Smoke Display"},
         )
         account = json.loads(account_body)
         ACCOUNT_TOKEN = account["account_token"]
         assert account["account"]["username"] == "smoke_tester"
+        assert account["account"]["display_name"] == "Smoke Display"
 
         try:
             request("/api/accounts/register", method="POST",
