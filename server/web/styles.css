@@ -346,3 +346,23 @@ button:focus:not(:focus-visible) { outline: none; }
   .chat-search input { width:0; }
 }
 
+
+/* Keep each message at its natural height so long histories scroll instead of compressing. */
+#chatView .messages > * {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+/* Explicit flex sizing keeps the chat scrollport bounded in Android WebView and desktop. */
+#chatView .stage {
+  min-height: 0;
+  min-width: 0;
+}
+#chatView .messages {
+  flex: 1 1 0%;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+}
