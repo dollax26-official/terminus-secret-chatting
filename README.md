@@ -37,9 +37,16 @@ Terminus Secrets gives you a Windows desktop client and an Android client that t
 
 ## Current chat controls
 
-- Reply to a message, add/remove emoji reactions, pin/unpin messages, and edit or delete messages you authored.
-- Message content remains encrypted in the browser before upload. Edits replace the stored ciphertext, and deletion is a soft-delete marker so connected clients can update their view.
-- The current interface still uses the existing host-wide group/channel model. Separate Discord-style servers, full role/permission management, direct messages/group DMs, file uploads, and voice/video calls are not yet implemented.
+- Server accounts are required before device pairing: unique username + password, PBKDF2-HMAC-SHA256 password hashes, and revocable 30-day account sessions.
+- Create multiple servers, join using an invite code, and switch between servers.
+- Each server has owner/admin/member roles. Owners can promote/demote admins; owners and admins can create, rename, and delete channels.
+- Public text channels are visible to server members. Private channels are visible only to invited channel members; owners/admins can add existing server members.
+- One-to-one and group direct messages are supported. The host checks conversation membership on message sync, sending, editing, deleting, reacting, and pinning.
+- Reply to messages, add/remove emoji reactions, pin/unpin messages, and edit/delete messages you authored.
+- Search the currently loaded local message history, see unread counts and typing indicators, and use browser/native notifications. Mentions are highlighted and can trigger notifications.
+- Attachments are encrypted on the sending device as part of the message payload. The current client limits attachments to 40 KB to fit the host's request-size limits.
+- Message bodies and attachments remain AES-256-GCM ciphertext on the host. Server/channel names, usernames, membership, timestamps, and typing status are metadata visible to the host.
+- Voice/video calls, screen sharing, custom role definitions, and large uploads are not included in this feature set yet.
 
 ## How it works
 
@@ -180,16 +187,9 @@ Enter the pairing code or paste the master key printed by the host. Then enter t
 
 For a Windows-first walkthrough covering host setup, IPv4/IPv6 reachability, HTTPS fingerprint checks, Windows Firewall, clients, safe GitHub updates, and troubleshooting, see [`docs/WINDOWS-IPV6-HTTPS-GUIDE.md`](docs/WINDOWS-IPV6-HTTPS-GUIDE.md).
 
-### Optional host-only group-creation key
+### Server roles and channel privacy
 
-To require a separate key whenever a paired client creates a group, set `TERMINUS_ROOM_ADMIN_KEY` before starting the host. This is **not** the device-enrollment master key and **not** the vault passphrase. In PowerShell:
-
-```powershell
-$env:TERMINUS_ROOM_ADMIN_KEY = "replace-with-a-long-random-secret"
-python host.py --port 8443
-```
-
-Leave the variable unset to preserve the existing behavior. When enabled, the server enforces the key; client-side UI checks alone are not a security boundary. Clients prompt for the key only when the host reports that it is required. Keep the value private and use HTTPS. The current API restricts group creation; rename/delete group management is not implemented by this change.
+Each server has an owner, admins, and members. Only the owner can promote or demote admins; owners and admins can create, rename, or delete channels. Private channels are visible only to accounts explicitly added to that channel; owners/admins can add existing server members. Direct-message and private-channel membership is enforced by the host API, not only by the interface.
 
 ## Remote access from another network
 
@@ -342,22 +342,34 @@ terminus-secrets/
 
 ## API summary
 
-All endpoints are JSON over HTTPS. `Authorization: Bearer <device-token>` is required except for `/api/health` and `/api/pair`.
+All endpoints are JSON over HTTPS. Account sign-in is required before device pairing; protected chat endpoints require both an account session and a paired-device token.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
 | GET | `/api/health` | Host name, version, certificate fingerprint |
+| POST | `/api/accounts/register` | Create an account |
+| POST | `/api/accounts/login` | Sign in |
+| POST | `/api/accounts/logout` | Revoke the current account session |
 | POST | `/api/pair` | Exchange a pairing code or master key for a device token |
+| POST | `/api/servers/create` | Create a server and its general channel |
+| POST | `/api/servers/join` | Join a server using its invite code |
+| POST | `/api/servers/role` | Owner assigns admin/member roles |
+| POST | `/api/rooms` | Create a public or private channel |
+| POST | `/api/rooms/member` | Add a server member to a private channel |
+| POST | `/api/rooms/manage` | Rename or delete a channel with owner/admin permission |
+| POST | `/api/dm/open` | Open a direct or group DM |
+| POST | `/api/typing` | Publish ephemeral typing status |
 | GET | `/api/vault` | Salt, KDF iterations, optional vault-check blob |
 | POST | `/api/vault/check` | Store the first vault-check blob |
-| GET | `/api/sync?after=N&wait=S` | Long-poll messages, groups, devices |
+| GET | `/api/sync?after=N&wait=S` | Long-poll messages, servers, channels, devices and typing |
 | POST | `/api/messages` | Store one encrypted message |
-| POST | `/api/rooms` | Create a group (name + description) |
-| POST | `/api/devices/revoke` | Revoke a device token |
+| POST | `/api/messages/edit` | Edit a message you authored |
+| POST | `/api/messages/delete` | Delete a message you authored |
+| POST | `/api/messages/react` | Toggle an emoji reaction |
+| POST | `/api/messages/pin` | Pin or unpin a message |
+| POST | `/api/devices/revoke` | Revoke a device belonging to your account |
 
-The host never accepts plaintext message bodies.
-
----
+The host never accepts plaintext message bodies or attachment contents.
 
 ## Troubleshooting
 
