@@ -222,13 +222,28 @@ def init_db(passphrase: str) -> None:
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS accounts (
+                id TEXT PRIMARY KEY,
+                username TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                password_salt BLOB NOT NULL,
+                password_hash BLOB NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS account_sessions (
+                token_hash TEXT PRIMARY KEY,
+                account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                created_at TEXT NOT NULL,
+                expires_at INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_account_sessions_expiry ON account_sessions(expires_at);
             CREATE TABLE IF NOT EXISTS devices (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 token_hash TEXT NOT NULL UNIQUE,
                 created_at TEXT NOT NULL,
                 last_seen TEXT,
-                revoked INTEGER NOT NULL DEFAULT 0
+                revoked INTEGER NOT NULL DEFAULT 0,
+                account_id TEXT REFERENCES accounts(id)
             );
             CREATE TABLE IF NOT EXISTS rooms (
                 id TEXT PRIMARY KEY,
@@ -249,6 +264,10 @@ def init_db(passphrase: str) -> None:
             CREATE INDEX IF NOT EXISTS idx_messages_room ON messages(room_id, id);
             """
         )
+        device_columns = [row["name"] for row in conn.execute("PRAGMA table_info(devices)")]
+        if "account_id" not in device_columns:
+            conn.execute("ALTER TABLE devices ADD COLUMN account_id TEXT REFERENCES accounts(id)")
+
         if not conn.execute("SELECT 1 FROM rooms WHERE id='general'").fetchone():
             conn.execute(
                 "INSERT INTO rooms(id, name, created_at) VALUES('general','general',?)",
@@ -354,7 +373,21 @@ class Handler(BaseHTTPRequestHandler):
         return json.loads(raw.decode("utf-8"))
 
     # -- auth -------------------------------------------------------------- #
+    def _account_session_id(self) -> str | None:
+        token = self.headers.get("X-Account-Token", "").strip()
+        if len(token) < 32:
+            return None
+        with db() as conn:
+            row = conn.execute(
+                "SELECT account_id FROM account_sessions WHERE token_hash=? AND expires_at>?",
+                (sha256_hex(token), int(time.time())),
+            ).fetchone()
+        return row["account_id"] if row else None
+
     def _device(self) -> sqlite3.Row | None:
+        account_id = self._account_session_id()
+        if account_id is None:
+            return None
         header = self.headers.get("Authorization", "")
         if not header.startswith("Bearer "):
             return None
@@ -364,7 +397,8 @@ class Handler(BaseHTTPRequestHandler):
         token_hash = sha256_hex(token)
         with db() as conn:
             row = conn.execute(
-                "SELECT * FROM devices WHERE token_hash=? AND revoked=0", (token_hash,)
+                "SELECT * FROM devices WHERE token_hash=? AND revoked=0 AND account_id=?",
+                (token_hash, account_id),
             ).fetchone()
             if row is None:
                 return None
@@ -573,6 +607,22 @@ class Handler(BaseHTTPRequestHandler):
             self._error(400, "invalid json")
             return
 
+        if path == "/api/accounts/register":
+            self._account_register(body)
+            return
+
+        if path == "/api/accounts/login":
+            self._account_login(body)
+            return
+
+        if path == "/api/accounts/logout":
+            token = self.headers.get("X-Account-Token", "").strip()
+            if token:
+                with db() as conn:
+                    conn.execute("DELETE FROM account_sessions WHERE token_hash=?", (sha256_hex(token),))
+            self._send_json(200, {"ok": True})
+            return
+
         if path == "/api/pair":
             self._pair(body)
             return
@@ -683,7 +733,64 @@ class Handler(BaseHTTPRequestHandler):
 
         self._error(404, "not found")
 
+    def _account_register(self, body: dict) -> None:
+        username = str(body.get("username") or "").strip()
+        password = str(body.get("password") or "")
+        if not (3 <= len(username) <= 24) or not all(ch.isalnum() or ch in "_-" for ch in username):
+            self._error(400, "Username must be 3–24 characters using letters, numbers, _ or -.")
+            return
+        if len(password) < 10 or len(password) > 256:
+            self._error(400, "Password must be between 10 and 256 characters.")
+            return
+        salt = secrets.token_bytes(16)
+        password_hash = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 600_000)
+        account_id = "usr_" + secrets.token_hex(12)
+        try:
+            with db() as conn:
+                conn.execute(
+                    "INSERT INTO accounts(id, username, password_salt, password_hash, created_at) VALUES(?,?,?,?,?)",
+                    (account_id, username, salt, password_hash, now_iso()),
+                )
+        except sqlite3.IntegrityError:
+            self._error(409, "That username is already registered.")
+            return
+        self._create_account_session(account_id, username)
+
+    def _account_login(self, body: dict) -> None:
+        username = str(body.get("username") or "").strip()
+        password = str(body.get("password") or "")
+        with db() as conn:
+            account = conn.execute(
+                "SELECT id, username, password_salt, password_hash FROM accounts WHERE username=? COLLATE NOCASE",
+                (username,),
+            ).fetchone()
+        # Perform a KDF even for unknown usernames to reduce timing-based enumeration.
+        salt = account["password_salt"] if account else b"\x00" * 16
+        expected = account["password_hash"] if account else b"\x00" * 32
+        actual = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8")[:256], salt, 600_000)
+        if account is None or not hmac.compare_digest(actual, expected):
+            self._error(401, "Incorrect username or password.")
+            return
+        self._create_account_session(account["id"], account["username"])
+
+    def _create_account_session(self, account_id: str, username: str) -> None:
+        token = "ta_" + secrets.token_urlsafe(40)
+        with db() as conn:
+            conn.execute(
+                "INSERT INTO account_sessions(token_hash, account_id, created_at, expires_at) VALUES(?,?,?,?)",
+                (sha256_hex(token), account_id, now_iso(), int(time.time()) + 30 * 24 * 60 * 60),
+            )
+        self._send_json(200, {
+            "account_token": token,
+            "account": {"id": account_id, "username": username},
+            "expires_in": 30 * 24 * 60 * 60,
+        })
+
     def _pair(self, body: dict) -> None:
+        account_id = self._account_session_id()
+        if account_id is None:
+            self._error(401, "Sign in or create an account before pairing this device.")
+            return
         ip = self.client_address[0]
         with PAIR_LOCK:
             now = time.time()
@@ -709,9 +816,9 @@ class Handler(BaseHTTPRequestHandler):
         device_id = "dev_" + secrets.token_hex(6)
         with db() as conn:
             conn.execute(
-                "INSERT INTO devices(id, name, token_hash, created_at, last_seen) "
-                "VALUES(?,?,?,?,?)",
-                (device_id, name, sha256_hex(token), now_iso(), now_iso()),
+                "INSERT INTO devices(id, name, token_hash, created_at, last_seen, account_id) "
+                "VALUES(?,?,?,?,?,?)",
+                (device_id, name, sha256_hex(token), now_iso(), now_iso(), account_id),
             )
         self._send_json(
             200,
