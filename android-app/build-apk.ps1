@@ -18,8 +18,8 @@ if ($env:ANDROID_SDK_ROOT) {
     $Sdk = Join-Path (Split-Path -Parent $Root) ".android-sdk"
 }
 
-$BuildTools = Join-Path $Sdk "build-tools\34.0.0"
-$AndroidJar = Join-Path $Sdk "platforms\android-34\android.jar"
+$BuildTools = Join-Path $Sdk "build-tools\36.0.0"
+$AndroidJar = Join-Path $Sdk "platforms\android-36\android.jar"
 
 if (-not (Test-Path $AndroidJar)) {
     throw "Android SDK not found at $Sdk. Run tools/setup-android-sdk.ps1 first."
@@ -70,9 +70,9 @@ $linkArgs = @(
     "-R", $resZip,
     "--java", $gen,
     "--min-sdk-version", "26",
-    "--target-sdk-version", "34",
-    "--version-code", "1",
-    "--version-name", "1.0",
+    "--target-sdk-version", "36",
+    "--version-code", "2",
+    "--version-name", "1.1",
     "--auto-add-overlay"
 )
 & $Aapt2 $linkArgs
@@ -109,16 +109,25 @@ if ($LASTEXITCODE -ne 0) { throw "zipalign failed" }
 
 # 6. sign
 Write-Host "[6/6] apksigner"
-$Keystore = Join-Path $Root "keystore\terminus-release.jks"
-$Pass = "terminus-secrets"
+$Keystore = if ($env:TERMINUS_KEYSTORE_PATH) { $env:TERMINUS_KEYSTORE_PATH } else { Join-Path $Root "keystore\terminus-release.p12" }
+$Pass = $env:TERMINUS_APK_SIGNING_PASSWORD
+if (-not $Pass) {
+    $securePass = Read-Host "Enter the APK signing password (use the same password for future releases)" -AsSecureString
+    $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePass)
+    try { $Pass = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr) }
+    finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
+}
+if ($Pass.Length -lt 12) { throw "Use a signing password with at least 12 characters." }
+$env:TERMINUS_APK_SIGNING_PASSWORD = $Pass
+
 if (-not (Test-Path $Keystore)) {
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Keystore) | Out-Null
     $keyArgs = @(
         "-genkeypair", "-v",
         "-keystore", $Keystore,
         "-storetype", "PKCS12",
-        "-storepass", $Pass,
-        "-keypass", $Pass,
+        "-storepass:env", "TERMINUS_APK_SIGNING_PASSWORD",
+        "-keypass:env", "TERMINUS_APK_SIGNING_PASSWORD",
         "-alias", "terminus",
         "-keyalg", "RSA",
         "-keysize", "2048",
@@ -135,8 +144,8 @@ $signArgs = @(
     "sign",
     "--ks", $Keystore,
     "--ks-key-alias", "terminus",
-    "--ks-pass", "pass:$Pass",
-    "--key-pass", "pass:$Pass",
+    "--ks-pass", "env:TERMINUS_APK_SIGNING_PASSWORD",
+    "--key-pass", "env:TERMINUS_APK_SIGNING_PASSWORD",
     "--out", $Out,
     $aligned
 )
