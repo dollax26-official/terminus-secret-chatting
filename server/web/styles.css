@@ -1030,3 +1030,14 @@ button:disabled { cursor: not-allowed; opacity: .48; }
   .stage-head .call-action { min-width: 36px; padding: 0 6px; }
   .chat-search { min-width: 0; }
 }
+
+.room-dialog-actions { align-items: center; gap: 12px; flex-wrap: wrap; }
+.room-dialog-actions .foot-left, .room-dialog-actions .foot-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.room-dialog-actions .foot-right { margin-left: auto; }
+.room-dialog-actions .danger-btn { min-height: 40px; }
+@media (max-width: 460px) {
+  .room-dialog-actions { align-items: stretch; }
+  .room-dialog-actions .foot-left, .room-dialog-actions .foot-right { width: 100%; }
+  .room-dialog-actions .foot-right { margin-left: 0; }
+  .room-dialog-actions .foot-right button { flex: 1; }
+}
