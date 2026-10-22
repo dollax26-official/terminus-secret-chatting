@@ -592,7 +592,7 @@ class Handler(BaseHTTPRequestHandler):
                               WHERE r.kind='text' AND sm.account_id=? AND (?='' OR r.server_id=?)
                               UNION
                               SELECT r.id FROM rooms r JOIN room_members rm ON rm.room_id=r.id
-                              WHERE r.kind='dm' AND rm.account_id=? AND (?='' OR r.kind='dm' OR r.server_id=?)
+                              WHERE r.kind IN ('dm','private') AND rm.account_id=? AND (?='' OR r.kind='dm' OR r.server_id=?)
                           )
                          ORDER BY m.id ASC LIMIT 200
                         """,
@@ -612,7 +612,7 @@ class Handler(BaseHTTPRequestHandler):
                                WHERE (r.kind='text' AND r.server_id IN (
                                    SELECT sm.server_id FROM server_members sm WHERE sm.account_id=?
                                ) AND (?='' OR r.server_id=?))
-                               OR (r.kind='dm' AND EXISTS (
+                               OR (r.kind IN ('dm','private') AND EXISTS (
                                    SELECT 1 FROM room_members rm WHERE rm.room_id=r.id AND rm.account_id=?
                                ) AND (?='' OR r.kind='dm' OR r.server_id=?))
                                ORDER BY r.created_at ASC""",
@@ -754,6 +754,13 @@ class Handler(BaseHTTPRequestHandler):
             self._open_dm(device, body)
             return
 
+        if path == "/api/rooms/member":
+            device = self._require_device()
+            if device is None:
+                return
+            self._add_private_room_member(device, body)
+            return
+
         if path == "/api/servers/role":
             device = self._require_device()
             if device is None:
@@ -850,7 +857,7 @@ class Handler(BaseHTTPRequestHandler):
                 room_check = conn.execute(
                     "SELECT server_id, name, kind FROM rooms WHERE id=?", (room_id,)
                 ).fetchone()
-                if room_check is None or room_check["kind"] != "text":
+                if room_check is None or room_check["kind"] not in ("text", "private"):
                     self._error(404, "channel not found")
                     return
                 if room_check["name"].casefold() == "general":
@@ -1053,7 +1060,7 @@ class Handler(BaseHTTPRequestHandler):
             if room is None:
                 self._error(404, "channel not found")
                 return
-            if room["kind"] == "dm":
+            if room["kind"] in ("dm", "private"):
                 allowed = conn.execute(
                     "SELECT 1 FROM room_members WHERE room_id=? AND account_id=?",
                     (room_id, device["account_id"]),
@@ -1113,8 +1120,11 @@ class Handler(BaseHTTPRequestHandler):
             self._error(400, "invalid ciphertext")
             return
         with db() as conn:
-            row = conn.execute("SELECT device_id, deleted_at FROM messages WHERE id=?", (message_id,)).fetchone()
+            row = conn.execute("SELECT device_id, deleted_at, room_id FROM messages WHERE id=?", (message_id,)).fetchone()
             if row is None or row["deleted_at"]:
+                self._error(404, "message not found")
+                return
+            if not self._can_access_room(conn, device["account_id"], row["room_id"]):
                 self._error(404, "message not found")
                 return
             if row["device_id"] != device["id"]:
@@ -1133,8 +1143,11 @@ class Handler(BaseHTTPRequestHandler):
             self._error(400, "message_id required")
             return
         with db() as conn:
-            row = conn.execute("SELECT device_id, deleted_at FROM messages WHERE id=?", (message_id,)).fetchone()
+            row = conn.execute("SELECT device_id, deleted_at, room_id FROM messages WHERE id=?", (message_id,)).fetchone()
             if row is None or row["deleted_at"]:
+                self._error(404, "message not found")
+                return
+            if not self._can_access_room(conn, device["account_id"], row["room_id"]):
                 self._error(404, "message not found")
                 return
             if row["device_id"] != device["id"]:
@@ -1159,7 +1172,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         account_id = self._account_session_id()
         with db() as conn:
-            if not conn.execute("SELECT 1 FROM messages WHERE id=? AND deleted_at IS NULL", (message_id,)).fetchone():
+            message = conn.execute("SELECT room_id FROM messages WHERE id=? AND deleted_at IS NULL", (message_id,)).fetchone()
+            if message is None or not self._can_access_room(conn, device["account_id"], message["room_id"]):
                 self._error(404, "message not found")
                 return
             existing = conn.execute(
@@ -1189,8 +1203,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         pinned = bool(body.get("pinned", True))
         with db() as conn:
-            row = conn.execute("SELECT deleted_at FROM messages WHERE id=?", (message_id,)).fetchone()
-            if row is None or row["deleted_at"]:
+            row = conn.execute("SELECT deleted_at, room_id FROM messages WHERE id=?", (message_id,)).fetchone()
+            if row is None or row["deleted_at"] or not self._can_access_room(conn, device["account_id"], row["room_id"]):
                 self._error(404, "message not found")
                 return
             conn.execute("UPDATE messages SET pinned=?, edited_at=? WHERE id=?", (1 if pinned else 0, now_iso(), message_id))
@@ -1246,6 +1260,55 @@ class Handler(BaseHTTPRequestHandler):
             member = conn.execute("SELECT role FROM server_members WHERE server_id=? AND account_id=?",
                                   (server["id"], account_id)).fetchone()
         self._send_json(200, {"id": server["id"], "name": server["name"], "description": server["description"], "role": member["role"]})
+
+    def _can_access_room(self, conn: sqlite3.Connection, account_id: str, room_id: str) -> bool:
+        room = conn.execute("SELECT server_id, kind FROM rooms WHERE id=?", (room_id,)).fetchone()
+        if room is None:
+            return False
+        if room["kind"] in ("dm", "private"):
+            return conn.execute(
+                "SELECT 1 FROM room_members WHERE room_id=? AND account_id=?", (room_id, account_id)
+            ).fetchone() is not None
+        return conn.execute(
+            "SELECT 1 FROM server_members WHERE server_id=? AND account_id=?",
+            (room["server_id"], account_id),
+        ).fetchone() is not None
+
+    def _add_private_room_member(self, device: sqlite3.Row, body: dict) -> None:
+        room_id = str(body.get("room_id") or "").strip()
+        username = str(body.get("username") or "").strip()
+        if not room_id or not username:
+            self._error(400, "room_id and username are required")
+            return
+        with db() as conn:
+            room = conn.execute("SELECT server_id, kind FROM rooms WHERE id=?", (room_id,)).fetchone()
+            if room is None or room["kind"] != "private":
+                self._error(404, "private channel not found")
+                return
+            actor = conn.execute(
+                "SELECT role FROM server_members WHERE server_id=? AND account_id=?",
+                (room["server_id"], device["account_id"]),
+            ).fetchone()
+            if actor is None or actor["role"] not in ("owner", "admin"):
+                self._error(403, "only server owners and admins can add private-channel members")
+                return
+            target = conn.execute("SELECT id FROM accounts WHERE username=? COLLATE NOCASE", (username,)).fetchone()
+            if target is None:
+                self._error(404, "user not found")
+                return
+            if not conn.execute(
+                "SELECT 1 FROM server_members WHERE server_id=? AND account_id=?",
+                (room["server_id"], target["id"]),
+            ).fetchone():
+                self._error(400, "that user must join this server first")
+                return
+            conn.execute(
+                "INSERT OR IGNORE INTO room_members(room_id,account_id,joined_at) VALUES(?,?,?)",
+                (room_id, target["id"], now_iso()),
+            )
+        with MESSAGE_COND:
+            MESSAGE_COND.notify_all()
+        self._send_json(200, {"ok": True, "room_id": room_id, "username": username})
 
     def _open_dm(self, device: sqlite3.Row, body: dict) -> None:
         username = str(body.get("username") or "").strip()
@@ -1325,6 +1388,7 @@ class Handler(BaseHTTPRequestHandler):
     def _create_room(self, device: sqlite3.Row, body: dict) -> None:
         name = " ".join(str(body.get("name") or "").split())[:32]
         description = " ".join(str(body.get("description") or "").split())[:120]
+        is_private = bool(body.get("private"))
         if not name:
             self._error(400, "name required")
             return
@@ -1344,10 +1408,16 @@ class Handler(BaseHTTPRequestHandler):
                 self._error(403, "only server owners and admins can create channels")
                 return
             room_id = "r_" + secrets.token_hex(5)
+            created_at = now_iso()
             conn.execute(
-                "INSERT INTO rooms(id, name, description, created_at, server_id) VALUES(?,?,?,?,?)",
-                (room_id, name, description, now_iso(), server_id),
+                "INSERT INTO rooms(id, name, description, created_at, server_id, kind) VALUES(?,?,?,?,?,?)",
+                (room_id, name, description, created_at, server_id, "private" if is_private else "text"),
             )
+            if is_private:
+                conn.execute(
+                    "INSERT INTO room_members(room_id,account_id,joined_at) VALUES(?,?,?)",
+                    (room_id, device["account_id"], created_at),
+                )
         with MESSAGE_COND:
             MESSAGE_COND.notify_all()
         self._send_json(
@@ -1356,9 +1426,9 @@ class Handler(BaseHTTPRequestHandler):
                 "id": room_id,
                 "name": name,
                 "description": description,
-                "created_at": now_iso(),
+                "created_at": created_at,
                 "server_id": server_id,
-                "kind": "text",
+                "kind": "private" if is_private else "text",
             },
         )
 
