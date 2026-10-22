@@ -1066,7 +1066,8 @@
         if (unread > 0 && room.id !== state.currentRoom) button.append(el("span", "unread", unread > 99 ? "99+" : String(unread)));
         button.addEventListener("click", () => selectRoom(room.id));
         channelFragment.append(button);
-        if (room.name !== "general" && (state.hostAdmin || ["owner", "admin"].includes(state.servers.find((server) => server.id === state.activeServerId)?.role))) {
+        const serverRole = state.servers.find((server) => server.id === state.activeServerId)?.role;
+        if (room.name !== "general" && (["owner", "admin"].includes(serverRole) || (state.hostAdmin && room.kind === "private"))) {
           const manage = el("button", "room-manage", "···");
           manage.type = "button"; manage.title = `Manage #${room.name}`;
           manage.addEventListener("click", (event) => { event.stopPropagation(); manageRoom(room); });
