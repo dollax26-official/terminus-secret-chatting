@@ -539,6 +539,13 @@ class Handler(BaseHTTPRequestHandler):
         self._error(404, "not found")
 
     def _sync(self, device: sqlite3.Row, after: int, wait: int, updated_after: str = "", server_id: str = "") -> None:
+        if not server_id:
+            with db() as conn:
+                membership = conn.execute(
+                    "SELECT server_id FROM server_members WHERE account_id=? ORDER BY joined_at ASC LIMIT 1",
+                    (device["account_id"],),
+                ).fetchone()
+            server_id = membership["server_id"] if membership else ""
         deadline = time.monotonic() + wait
         while True:
             # Hold the condition lock while checking SQLite. The previous
@@ -633,6 +640,7 @@ class Handler(BaseHTTPRequestHandler):
                                 for row in devices
                             ],
                             "you": device["id"],
+                            "active_server_id": server_id,
                             "last_id": max([after] + [row["id"] for row in rows]),
                             "has_more": bool(more),
                             "server_time": now_iso(),
@@ -893,6 +901,14 @@ class Handler(BaseHTTPRequestHandler):
         if account is None or not hmac.compare_digest(actual, expected):
             self._error(401, "Incorrect username or password.")
             return
+        with db() as conn:
+            server = conn.execute("SELECT id, owner_account_id FROM servers ORDER BY created_at ASC LIMIT 1").fetchone()
+            if server and server["owner_account_id"] is None:
+                conn.execute("UPDATE servers SET owner_account_id=? WHERE id=?", (account["id"], server["id"]))
+                conn.execute(
+                    "INSERT OR IGNORE INTO server_members(server_id, account_id, role, joined_at) VALUES(?,?,?,?)",
+                    (server["id"], account["id"], "owner", now_iso()),
+                )
         self._create_account_session(account["id"], account["username"])
 
     def _create_account_session(self, account_id: str, username: str) -> None:
