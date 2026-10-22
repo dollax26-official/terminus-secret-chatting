@@ -826,6 +826,13 @@ class Handler(BaseHTTPRequestHandler):
             self._join_server(body)
             return
 
+        if path == "/api/servers/manage":
+            device = self._require_device()
+            if device is None:
+                return
+            self._manage_server(device, body)
+            return
+
         if path == "/api/dm/open":
             device = self._require_device()
             if device is None:
@@ -1380,6 +1387,58 @@ class Handler(BaseHTTPRequestHandler):
                 (server_id + "_general", "general", "General chat", now_iso(), server_id),
             )
         self._send_json(200, {"id": server_id, "name": name, "description": description, "invite_code": invite_code, "role": "owner"})
+
+    def _manage_server(self, device: sqlite3.Row, body: dict) -> None:
+        """Rename or delete a server. Only its owner may change server metadata."""
+        server_id = str(body.get("server_id") or "").strip()[:80]
+        action = str(body.get("action") or "").strip().lower()
+        if not server_id or action not in ("rename", "delete"):
+            self._error(400, "server_id and action (rename/delete) are required")
+            return
+        with db() as conn:
+            server = conn.execute(
+                "SELECT id, name, description, invite_code, owner_account_id FROM servers WHERE id=?",
+                (server_id,),
+            ).fetchone()
+            if server is None:
+                self._error(404, "server not found")
+                return
+            member = conn.execute(
+                "SELECT role FROM server_members WHERE server_id=? AND account_id=?",
+                (server_id, device["account_id"]),
+            ).fetchone()
+            if server["owner_account_id"] != device["account_id"] or member is None or member["role"] != "owner":
+                self._error(403, "only the server owner can edit or delete this server")
+                return
+            if action == "rename":
+                name = " ".join(str(body.get("name") or "").split())[:48]
+                description = " ".join(str(body.get("description") or "").split())[:160]
+                if not name:
+                    self._error(400, "server name required")
+                    return
+                conn.execute("UPDATE servers SET name=?, description=? WHERE id=?", (name, description, server_id))
+                updated = conn.execute(
+                    "SELECT id, name, description, invite_code FROM servers WHERE id=?", (server_id,)
+                ).fetchone()
+                self._send_json(200, {**dict(updated), "role": "owner"})
+                return
+            if server_id == "srv_default":
+                self._error(403, "the default server cannot be deleted; create another server and manage that one instead")
+                return
+            if conn.execute("SELECT COUNT(*) FROM servers").fetchone()[0] <= 1:
+                self._error(403, "create another server before deleting the last server")
+                return
+            room_ids = [row["id"] for row in conn.execute("SELECT id FROM rooms WHERE server_id=?", (server_id,)).fetchall()]
+            if room_ids:
+                marks = ",".join("?" for _ in room_ids)
+                conn.execute(f"DELETE FROM call_signals WHERE room_id IN ({marks})", room_ids)
+                conn.execute(f"DELETE FROM messages WHERE room_id IN ({marks})", room_ids)
+                conn.execute(f"DELETE FROM rooms WHERE id IN ({marks})", room_ids)
+            conn.execute("DELETE FROM server_members WHERE server_id=?", (server_id,))
+            conn.execute("DELETE FROM servers WHERE id=?", (server_id,))
+        with MESSAGE_COND:
+            MESSAGE_COND.notify_all()
+        self._send_json(200, {"ok": True, "deleted": server_id})
 
     def _join_server(self, body: dict) -> None:
         account_id = self._account_session_id()
