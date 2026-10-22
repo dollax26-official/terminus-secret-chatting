@@ -975,3 +975,5 @@ button:focus:not(:focus-visible) { outline: none; }
 
 .mention { color:var(--blue); font-weight:600; background:rgba(111,157,255,.10); border-radius:4px; padding:0 2px; }
 .mention-self { color:var(--accent); background:var(--accent-soft); }
+
+.channel-category { padding:12px 9px 5px; color:var(--faint); font-family:var(--mono); font-size:9px; letter-spacing:.16em; font-weight:700; }
