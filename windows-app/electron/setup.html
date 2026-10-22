@@ -169,6 +169,7 @@
       });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || 'Could not save the host.');
+      localStorage.setItem('ts.activeHost', probed.url);
       localStorage.removeItem('ts.token');
       localStorage.removeItem('ts.device');
       location.href = '/app/';
