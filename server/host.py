@@ -334,7 +334,7 @@ def init_db(passphrase: str) -> None:
                 "INSERT INTO servers(id,name,description,invite_code,owner_account_id,created_at) VALUES(?,?,?,?,NULL,?)",
                 ("srv_default", "My Server", "Migrated default server", secrets.token_urlsafe(9), now_iso()),
             )
-        conn.execute("UPDATE rooms SET server_id='srv_default', kind='text' WHERE id='general' AND server_id='srv_default'")
+        conn.execute("UPDATE rooms SET server_id='srv_default' WHERE id='general' AND server_id='srv_default'")
         legacy_owner = conn.execute("SELECT id FROM accounts ORDER BY created_at ASC LIMIT 1").fetchone()
         default_server = conn.execute("SELECT owner_account_id FROM servers WHERE id='srv_default'").fetchone()
         if legacy_owner and default_server and default_server["owner_account_id"] is None:
