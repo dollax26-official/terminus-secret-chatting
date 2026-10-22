@@ -346,6 +346,34 @@
   </form>
 </dialog>
 
+<dialog id="serverDialog" class="dialog">
+  <form id="serverForm" class="dialog-inner" method="dialog">
+    <header class="dialog-head">
+      <h3 id="serverDialogTitle">Server settings</h3>
+      <button type="button" id="closeServerDialogBtn" class="icon-btn" aria-label="Close">×</button>
+    </header>
+    <p class="muted">Only the server owner can change these settings. Deleting a server also removes its channels and message history.</p>
+    <label class="field">
+      <span>Server name</span>
+      <input id="serverNameInput" maxlength="48" autocomplete="off" required>
+    </label>
+    <label class="field">
+      <span>Description</span>
+      <textarea id="serverDescriptionInput" rows="3" maxlength="160" placeholder="What is this server for?"></textarea>
+    </label>
+    <p id="serverError" class="form-error" role="alert"></p>
+    <footer class="dialog-foot room-dialog-actions">
+      <div class="foot-left">
+        <button type="button" id="deleteServerBtn" class="danger-btn">Delete server</button>
+      </div>
+      <div class="foot-right">
+        <button type="button" id="cancelServerDialogBtn" class="ghost-btn">Cancel</button>
+        <button type="submit" id="saveServerBtn" class="primary small">Save changes</button>
+      </div>
+    </footer>
+  </form>
+</dialog>
+
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 <noscript><p class="noscript">Terminus Secrets needs JavaScript for end-to-end encryption.</p></noscript>
 
