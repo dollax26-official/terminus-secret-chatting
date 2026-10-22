@@ -36,6 +36,7 @@
     servers: [],
     serverMembers: [],
     activeServerId: localStorage.getItem("ts.server") || "",
+    savedHosts: (() => { try { const value = JSON.parse(localStorage.getItem("ts.hosts") || "[]"); return Array.isArray(value) ? value : []; } catch (_) { return []; } })(),
     searchQuery: "",
     devices: [],
     messages: [],
@@ -443,6 +444,7 @@
       const first = state.rooms.find((room) => room.kind !== "dm" && room.server_id === state.activeServerId);
       if (first) selectRoom(first.id); else renderRooms();
     });
+    $("#addHostBtn").addEventListener("click", addHost);
     $("#createServerBtn").addEventListener("click", createServer);
     $("#joinServerBtn").addEventListener("click", joinServer);
     $("#inviteServerBtn").addEventListener("click", showServerInvite);
@@ -919,6 +921,7 @@
     if (!state.rooms.some((r) => r.id === state.currentRoom)) {
       state.currentRoom = state.rooms[0]?.id || "general";
     }
+    renderHosts();
     renderRooms();
     updateHeader();
     renderMessages();
@@ -1786,6 +1789,97 @@
     location.reload();
   }
 
+  /* ---------------------------------------------------------- host list */
+  function normalizeHostUrl(raw) {
+    const parsed = new URL(String(raw || "").trim());
+    if (parsed.protocol !== "https:" || parsed.username || parsed.password) {
+      throw new Error("Use an HTTPS host address, for example https://[2001:db8::1]:8443.");
+    }
+    parsed.pathname = "/";
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString().replace(/\\/$/, "");
+  }
+
+  function importHostListFromQuery() {
+    const params = new URLSearchParams(location.search);
+    const packed = params.get("ts_hosts");
+    if (packed) {
+      try {
+        const incoming = JSON.parse(packed);
+        if (Array.isArray(incoming)) {
+          const merged = new Map(state.savedHosts.map((host) => [host.url, host]));
+          for (const item of incoming.slice(0, 20)) {
+            try {
+              const url = normalizeHostUrl(item.url);
+              merged.set(url, { url, name: String(item.name || new URL(url).hostname).slice(0, 48) });
+            } catch (_) {}
+          }
+          state.savedHosts = Array.from(merged.values()).slice(-20);
+          localStorage.setItem("ts.hosts", JSON.stringify(state.savedHosts));
+        }
+      } catch (_) {}
+    }
+    if (params.get("ts_force_pair") === "1") {
+      // Keep the per-device token so the host can reuse the same device record,
+      // but require fresh account sign-in, pairing code, and vault passphrase.
+      state.accountToken = "";
+      state.account = null;
+      localStorage.removeItem(LS.accountToken);
+      localStorage.removeItem(LS.account);
+    }
+    if (packed || params.has("ts_force_pair")) history.replaceState(null, "", location.pathname);
+  }
+
+  function renderHosts() {
+    const list = $("#hostList");
+    if (!list) return;
+    list.replaceChildren();
+    for (const host of state.savedHosts) {
+      const button = el("button", "host-entry");
+      const name = el("span", "host-entry-name", host.name || new URL(host.url).hostname);
+      const address = el("small", "host-entry-url", host.url);
+      button.append(name, address);
+      button.title = "Reconnect: sign in, enter the pairing code, then unlock the vault";
+      button.addEventListener("click", () => connectToHost(host.url));
+      list.append(button);
+    }
+    if (!state.savedHosts.length) {
+      list.append(el("p", "host-list-empty", "Add an HTTPS/IPv6 host to reconnect later."));
+    }
+  }
+
+  function saveHostList() {
+    localStorage.setItem("ts.hosts", JSON.stringify(state.savedHosts));
+    renderHosts();
+  }
+
+  function addHost() {
+    const raw = window.prompt("Host HTTPS address (IPv6 needs square brackets), e.g. https://[2001:db8::1]:8443");
+    if (raw === null || !raw.trim()) return;
+    let url;
+    try { url = normalizeHostUrl(raw); }
+    catch (err) { toast(err.message || "Invalid host address.", "error"); return; }
+    const existing = state.savedHosts.find((host) => host.url === url);
+    const defaultName = existing?.name || new URL(url).hostname;
+    const name = window.prompt("Name this host:", defaultName);
+    if (name === null) return;
+    const item = { url, name: name.trim().slice(0, 48) || defaultName };
+    state.savedHosts = state.savedHosts.filter((host) => host.url !== url);
+    state.savedHosts.push(item);
+    state.savedHosts = state.savedHosts.slice(-20);
+    saveHostList();
+    toast("Host saved. Select it in HOST CONNECTIONS to reconnect.");
+  }
+
+  function connectToHost(url) {
+    try {
+      const normalized = normalizeHostUrl(url);
+      const hostList = encodeURIComponent(JSON.stringify(state.savedHosts));
+      location.href = normalized + "/app/?ts_hosts=" + hostList + "&ts_force_pair=1";
+    } catch (err) { toast(err.message || "Could not open host.", "error"); }
+  }
+
   /* ---------------------------------------------------------- calls/media */
   async function sendCallSignal(toUsername, callId, kind, payload = {}) {
     const res = await api("/api/calls/signal", {
@@ -2017,6 +2111,7 @@
   async function init() {
     cacheUi();
     bindEvents();
+    importHostListFromQuery();
     ui.deviceInput.value = state.deviceName;
     ui.accountTitle = $("#accountTitle");
     ui.accountPanel.hidden = Boolean(state.accountToken);
