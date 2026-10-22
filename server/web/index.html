@@ -210,6 +210,8 @@
     <form id="composer" class="composer" autocomplete="off">
       <textarea id="input" rows="1" placeholder="Message #general"
                 aria-label="Message" maxlength="8000"></textarea>
+      <input id="attachInput" type="file" hidden>
+      <button id="attachBtn" class="attach-btn" type="button" aria-label="Attach a file" title="Attach a file">＋</button>
       <button id="sendBtn" class="send-btn" type="submit" aria-label="Send message">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12 20 4l-4.5 16L12 13l-8-1Z"/><path d="M12 13l8-9"/></svg>
       </button>
