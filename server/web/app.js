@@ -63,6 +63,7 @@
     voiceRecorder: null,
     voiceChunks: [],
     voiceStopTimer: null,
+    savedHosts: [],
   };
 
   const ui = {};
@@ -296,6 +297,8 @@
     ui.hostBadgeText = $("#hostBadgeText");
     ui.roomList = $("#roomList");
     ui.dmList = $("#dmList");
+    ui.savedHostList = $("#savedHostList");
+    ui.addHostBtn = $("#addHostBtn");
     ui.serverSelect = $("#serverSelect");
     ui.searchInput = $("#searchInput");
     ui.fileInput = $("#fileInput");
@@ -454,6 +457,7 @@
       event.preventDefault();
       submitComposer();
     });
+    ui.addHostBtn.addEventListener("click", addSavedHost);
     ui.serverSelect.addEventListener("change", () => {
       state.activeServerId = ui.serverSelect.value;
       localStorage.setItem("ts.server", state.activeServerId);
@@ -936,6 +940,7 @@
       state.currentRoom = state.rooms[0]?.id || "general";
     }
     renderRooms();
+    renderSavedHosts();
     updateHeader();
     renderMessages();
     setOnline(true);
@@ -1799,6 +1804,87 @@
     location.reload();
   }
 
+  /* -------------------------------------------------------------- saved hosts */
+  function readSavedHosts() {
+    try {
+      const saved = JSON.parse(localStorage.getItem("ts.saved-hosts") || "[]");
+      return Array.isArray(saved) ? saved.filter((item) => item && typeof item.url === "string").slice(0, 20) : [];
+    } catch (_) { return []; }
+  }
+
+  function renderSavedHosts() {
+    if (!ui.savedHostList) return;
+    state.savedHosts = readSavedHosts();
+    ui.savedHostList.replaceChildren();
+    for (const host of state.savedHosts) {
+      const button = el("button", "room-btn saved-host-btn");
+      button.type = "button";
+      button.title = host.url + " — reconnect requires your account, pairing code, and vault phrase";
+      button.append(el("span", "hash", "↗"), el("span", "name", host.name || host.url));
+      button.addEventListener("click", () => reconnectSavedHost(host));
+      ui.savedHostList.append(button);
+    }
+    if (!state.savedHosts.length) ui.savedHostList.append(el("div", "host-empty", "No saved hosts yet"));
+  }
+
+  function normalizeHostAddress(raw) {
+    let value = String(raw || "").trim();
+    if (!value) throw new Error("Enter the host IPv6 address, for example https://[2001:db8::1]:8443.");
+    if (!/^https:\/\//i.test(value)) value = "https://" + value;
+    const parsed = new URL(value);
+    if (parsed.protocol !== "https:") throw new Error("Hosts must use HTTPS.");
+    if (!parsed.port) parsed.port = "8443";
+    if (parsed.username || parsed.password || parsed.search || parsed.hash) throw new Error("Enter only the host address, without credentials or query parameters.");
+    return { url: parsed.origin.replace(/\/$/, ""), name: parsed.hostname.replace(/^\[|\]$/g, "") };
+  }
+
+  function addSavedHost() {
+    const raw = window.prompt("Host IPv6 address or HTTPS URL (example: https://[2001:db8::1]:8443):");
+    if (raw === null) return;
+    try {
+      const host = normalizeHostAddress(raw);
+      const list = readSavedHosts().filter((item) => item.url !== host.url);
+      list.unshift(host);
+      localStorage.setItem("ts.saved-hosts", JSON.stringify(list.slice(0, 20)));
+      state.savedHosts = list.slice(0, 20);
+      renderSavedHosts();
+      toast("Saved host address. Reconnecting will require your account, pairing code, and vault phrase.");
+    } catch (err) { toast(err.message || "Could not save host.", "error"); }
+  }
+
+  function reconnectSavedHost(host) {
+    if (!window.confirm("Reconnect to " + host.url + "? You will need to sign in and enter that host’s pairing code and vault phrase. Credentials are not saved.")) return;
+    const hostsJson = JSON.stringify(readSavedHosts());
+    const query = "?tsSavedHosts=" + encodeURIComponent(hostsJson) + "&tsReconnect=1";
+    if (window.TerminusNative && typeof window.TerminusNative.switchHost === "function") {
+      window.TerminusNative.switchHost(host.url, hostsJson);
+      return;
+    }
+    if (location.hostname === "127.0.0.1" && location.port === "8756") {
+      fetch("/__switch-host", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: host.url }) })
+        .then(async (res) => { const data = await res.json().catch(() => ({})); if (!res.ok) throw new Error(data.error || "Could not switch host."); location.href = "/app/" + query; })
+        .catch((err) => toast(err.message || "Could not switch host.", "error"));
+      return;
+    }
+    location.href = host.url + "/app/" + query;
+  }
+
+  function restoreSavedHostsFromUrl() {
+    const params = new URLSearchParams(location.search);
+    const encoded = params.get("tsSavedHosts");
+    if (!encoded) return;
+    try {
+      const incoming = JSON.parse(encoded);
+      const merged = new Map(readSavedHosts().map((item) => [item.url, item]));
+      if (Array.isArray(incoming)) incoming.slice(0, 20).forEach((item) => {
+        if (item && typeof item.url === "string" && item.url.startsWith("https://")) merged.set(item.url, item);
+      });
+      state.savedHosts = Array.from(merged.values()).slice(0, 20);
+      localStorage.setItem("ts.saved-hosts", JSON.stringify(state.savedHosts));
+      history.replaceState(null, "", location.pathname);
+    } catch (_) {}
+  }
+
   /* -------------------------------------------------------------- calls/media */
   function requireDirectMessage() {
     const room = currentRoom();
@@ -2087,6 +2173,7 @@
 
   /* ------------------------------------------------------------------- init */
   async function init() {
+    restoreSavedHostsFromUrl();
     cacheUi();
     bindEvents();
     ui.deviceInput.value = state.deviceName;
