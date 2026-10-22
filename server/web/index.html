@@ -193,6 +193,9 @@
         <span>⌕</span><input id="searchInput" type="search" placeholder="Search messages…" autocomplete="off">
       </label>
       <div class="head-badges">
+        <button id="audioCallBtn" class="icon-btn call-action" type="button" title="Start voice call" aria-label="Start voice call">☎</button>
+        <button id="videoCallBtn" class="icon-btn call-action" type="button" title="Start video call" aria-label="Start video call">▣</button>
+        <button id="screenCallBtn" class="icon-btn call-action" type="button" title="Share screen in a call" aria-label="Share screen" disabled>▤</button>
         <span class="badge lock-badge">
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
           AES-256-GCM
@@ -213,6 +216,7 @@
 
     <form id="composer" class="composer" autocomplete="off">
       <button id="attachBtn" class="attach-btn" type="button" title="Attach a file" aria-label="Attach a file">＋</button>
+      <button id="voiceMessageBtn" class="attach-btn voice-message-btn" type="button" title="Record voice message (max 12 seconds)" aria-label="Record voice message">🎙</button>
       <input id="fileInput" type="file" hidden>
       <textarea id="input" rows="1" placeholder="Message #general"
                 aria-label="Message" maxlength="8000"></textarea>
@@ -220,6 +224,22 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12 20 4l-4.5 16L12 13l-8-1Z"/><path d="M12 13l8-9"/></svg>
       </button>
     </form>
+    <section id="callPanel" class="call-panel" hidden aria-label="Call controls">
+      <div class="call-panel-head">
+        <div><strong id="callTitle">Call</strong><small id="callStatus">Connecting…</small></div>
+        <div class="call-controls">
+          <button id="muteCallBtn" class="ghost-btn" type="button">Mute mic</button>
+          <button id="cameraCallBtn" class="ghost-btn" type="button">Camera off</button>
+          <button id="shareCallBtn" class="ghost-btn" type="button">Share screen</button>
+          <button id="endCallBtn" class="danger-btn" type="button">End call</button>
+        </div>
+      </div>
+      <div class="call-videos">
+        <video id="remoteCallVideo" autoplay playsinline></video>
+        <video id="localCallVideo" autoplay muted playsinline></video>
+        <audio id="remoteCallAudio" autoplay></audio>
+      </div>
+    </section>
     <p class="composer-hint">
       <span class="hint-desktop"><span class="mono">ENTER</span> send · <span class="mono">SHIFT+ENTER</span> newline · history saved on the host</span>
       <span class="hint-mobile">Encrypted on this device · history stays on the host</span>
