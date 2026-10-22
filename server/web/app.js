@@ -26,6 +26,7 @@
     account: (() => { try { return JSON.parse(localStorage.getItem(LS.account) || "null"); } catch (_) { return null; } })(),
     accountMode: "login",
     currentServer: localStorage.getItem("ts.server") || "",
+    searchQuery: "",
     servers: [],
     token: localStorage.getItem(LS.token) || "",
     deviceId: localStorage.getItem(LS.device) || "",
@@ -291,6 +292,7 @@
     ui.inviteServerBtn = $("#inviteServerBtn");
     ui.manageRolesBtn = $("#manageRolesBtn");
     ui.roomTitle = $("#roomTitle");
+    ui.messageSearch = $("#messageSearch");
     ui.roomMeta = $("#roomMeta");
     ui.syncState = $("#syncState");
     ui.railLive = $("#railLive");
@@ -424,6 +426,10 @@
     });
 
     ui.serverSelect.addEventListener("change", () => switchServer(ui.serverSelect.value));
+    ui.messageSearch.addEventListener("input", () => {
+      state.searchQuery = ui.messageSearch.value.trim().toLowerCase();
+      renderMessages();
+    });
     ui.createServerBtn.addEventListener("click", createServer);
     ui.joinServerBtn.addEventListener("click", joinServer);
     ui.inviteServerBtn.addEventListener("click", shareInvite);
@@ -848,6 +854,7 @@
         }
         if (!res.ok) throw new Error("sync failed");
         const data = await res.json();
+        if (data.active_server_id && data.active_server_id !== state.currentServer) continue;
         await applySync(data);
         setOnline(true);
       } catch (err) {
@@ -1116,15 +1123,19 @@
     state.lastRendered = { day: null, device: null, at: 0 };
     state.newBelow = 0;
     ui.jumpBtn.hidden = true;
-    const list = state.messages.filter((m) => m.room_id === state.currentRoom);
+    const list = state.messages.filter((m) => m.room_id === state.currentRoom &&
+      (!state.searchQuery || (m.text || "").toLowerCase().includes(state.searchQuery)));
     for (const message of list) appendMessage(message, { forceScroll: false, track: false, updateEmpty: false });
     updateEmptyState();
     scrollToBottom(false);
   }
 
   function updateEmptyState() {
-    const list = state.messages.filter((m) => m.room_id === state.currentRoom);
+    const all = state.messages.filter((m) => m.room_id === state.currentRoom);
+    const list = all.filter((m) => !state.searchQuery || (m.text || "").toLowerCase().includes(state.searchQuery));
     const empty = list.length === 0;
+    ui.emptyTitle.textContent = state.searchQuery ? "No matching messages." : "Nothing here yet.";
+    ui.emptyText.textContent = state.searchQuery ? "Try a different search phrase." : "Send the first message. It is encrypted on this device before it leaves.";
     ui.emptyState.hidden = !empty;
     ui.messages.hidden = empty;
   }
