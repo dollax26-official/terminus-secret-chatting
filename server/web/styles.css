@@ -958,3 +958,8 @@ button:focus:not(:focus-visible) { outline: none; }
 .attachment-info b { overflow-wrap: anywhere; font-size: 12px; }
 .attachment-info small { color: var(--muted); font-size: 10px; }
 .attachment-download { flex: 0 0 auto; padding: 6px 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--text); font-size: 11px; cursor: pointer; }
+
+
+/* Typing presence */
+.typing-label { margin: 3px 0 0 !important; color: var(--accent) !important; font-size: 11px !important; min-height: 13px; }
+.typing-label[hidden] { display: none !important; }
