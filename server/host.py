@@ -566,7 +566,7 @@ class Handler(BaseHTTPRequestHandler):
                     self._error(404, "conversation not found")
                     return
                 conn.execute("DELETE FROM call_signals WHERE created_at < ?",
-                             ((datetime.now(timezone.utc).timestamp() - 86400),))
+                             (datetime.fromtimestamp(time.time() - 86400, timezone.utc).isoformat().replace("+00:00", "Z"),))
                 rows = conn.execute(
                     """SELECT id, sender_account_id, kind, payload, created_at
                        FROM call_signals WHERE room_id=? AND id>? AND sender_account_id<>?
