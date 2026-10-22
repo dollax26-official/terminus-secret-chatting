@@ -88,12 +88,6 @@ def main():
         code = (DATA / "pairing-code.txt").read_text().strip()
         assert len(code) == 9
 
-        try:
-            request("/api/sync", token="ts_invalid_token_0000000000", account_token=account_token)
-            raise AssertionError("invalid token was accepted")
-        except urllib.error.HTTPError as exc:
-            assert exc.code == 401, exc.code
-
         # Pairing now requires a server account session first.
         _, _, body = request(
             "/api/accounts/register",
@@ -102,6 +96,12 @@ def main():
         )
         account_token = json.loads(body)["account_token"]
         assert account_token.startswith("ta_")
+
+        try:
+            request("/api/sync", token="ts_invalid_token_0000000000", account_token=account_token)
+            raise AssertionError("invalid token was accepted")
+        except urllib.error.HTTPError as exc:
+            assert exc.code == 401, exc.code
 
         try:
             request(
