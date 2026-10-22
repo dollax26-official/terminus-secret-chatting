@@ -389,9 +389,8 @@ The host never accepts plaintext message bodies or attachment contents.
 ## Roadmap
 
 - Per-device key wrapping (X25519) instead of one shared vault key
-- Encrypted attachments
 - WebAuthn/Windows Hello unlock
-- Optional read receipts and typing indicators (metadata trade-off)
+- Optional read receipts (typing indicators are already supported and expose metadata)
 - SQLite backup/export command
 - iOS client
 
