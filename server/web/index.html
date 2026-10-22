@@ -42,11 +42,12 @@
 
     <section id="accountPanel" class="account-panel">
       <h2 id="accountTitle">Sign in to this server</h2>
-      <p class="field-hint">Create an account on this server before pairing a device. Your username is unique to this server.</p>
+      <p class="field-hint">Create an account on this server before pairing a device. Usernames are unique; display names can be reused.</p>
       <form id="accountForm" autocomplete="on" novalidate>
         <label class="field">
           <span>Username</span>
-          <input id="accountUsername" name="username" maxlength="24" minlength="3" autocomplete="username" placeholder="your_username" required>
+          <input id="accountUsername" name="username" maxlength="24" minlength="3" autocomplete="username" placeholder="your_username" aria-describedby="usernameHint" required>
+          <small id="usernameHint" class="field-hint">3–24 letters, numbers, underscores or hyphens.</small>
         </label>
         <label class="field">
           <span>Display name <small>(shown to others; not unique)</small></span>
@@ -54,7 +55,8 @@
         </label>
         <label class="field">
           <span>Password</span>
-          <input id="accountPassword" name="password" type="password" minlength="10" maxlength="256" autocomplete="current-password" required>
+          <input id="accountPassword" name="password" type="password" minlength="10" maxlength="256" autocomplete="current-password" aria-describedby="passwordHint" required>
+          <small id="passwordHint" class="field-hint">Use at least 10 characters.</small>
         </label>
         <button id="accountBtn" class="primary" type="submit">Sign in</button>
         <p id="accountError" class="form-error" role="alert"></p>
