@@ -23,6 +23,11 @@ required_host = (
     'self.root.bind_all(sequence, self._on_mousewheel, add="+")',
     "self.root.after_idle(self._update_scroll_region)",
     "yscrollincrement=24",
+    "self.root.minsize(620, 520)",
+    'self.canvas.bind("<Prior>"',
+    'self.canvas.bind("<Next>"',
+    'self.canvas.bind("<Home>"',
+    'self.canvas.bind("<End>"',
 )
 missing = [f"styles.css missing {item!r}" for item in required_css if item not in CSS]
 missing += [f"settings_app.py missing {item!r}" for item in required_host if item not in HOST_UI]
