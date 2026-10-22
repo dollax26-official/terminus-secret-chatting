@@ -1821,13 +1821,17 @@
         }
       } catch (_) {}
     }
-    if (params.get("ts_force_pair") === "1") {
+    const forcePair = params.get("ts_force_pair") === "1" || localStorage.getItem("ts.forcePair") === "1";
+    if (forcePair) {
       // Keep the per-device token so the host can reuse the same device record,
       // but require fresh account sign-in, pairing code, and vault passphrase.
       state.accountToken = "";
       state.account = null;
+      state.authMethod = "code";
       localStorage.removeItem(LS.accountToken);
       localStorage.removeItem(LS.account);
+      localStorage.removeItem("ts.forcePair");
+      setAuthMethod("code");
     }
     if (packed || params.has("ts_force_pair")) history.replaceState(null, "", location.pathname);
   }
@@ -1876,7 +1880,16 @@
   function connectToHost(url) {
     try {
       const normalized = normalizeHostUrl(url);
-      const hostList = encodeURIComponent(JSON.stringify(state.savedHosts));
+      const hostsJson = JSON.stringify(state.savedHosts);
+      const hostList = encodeURIComponent(hostsJson);
+      if (window.TerminusNative && typeof window.TerminusNative.switchHost === "function") {
+        window.TerminusNative.switchHost(normalized, hostsJson);
+        return;
+      }
+      if (location.hostname === "127.0.0.1" && location.port === "8756") {
+        location.href = "/setup?host=" + encodeURIComponent(normalized) + "&ts_hosts=" + hostList + "&ts_force_pair=1";
+        return;
+      }
       location.href = normalized + "/app/?ts_hosts=" + hostList + "&ts_force_pair=1";
     } catch (err) { toast(err.message || "Could not open host.", "error"); }
   }
