@@ -147,8 +147,17 @@
       <span class="live-dot" id="railLive" title="Connected"></span>
     </header>
 
+    <div class="server-switcher">
+      <label for="serverSelect" class="eyebrow">SERVER</label>
+      <select id="serverSelect" aria-label="Select server"></select>
+      <div class="server-actions">
+        <button id="createServerBtn" class="ghost-btn compact" type="button">+ Server</button>
+        <button id="joinServerBtn" class="ghost-btn compact" type="button">Join</button>
+        <button id="inviteServerBtn" class="ghost-btn compact" type="button">Invite</button>
+      </div>
+    </div>
     <div class="rail-head">
-      <span class="eyebrow">GROUPS</span>
+      <span class="eyebrow">CHANNELS</span>
       <button id="newRoomBtn" class="icon-btn" title="New group" aria-label="New group">+</button>
     </div>
     <nav id="roomList" class="rooms" aria-label="Groups"></nav>
