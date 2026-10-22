@@ -995,3 +995,6 @@ button:focus:not(:focus-visible) { outline: none; }
   .head-badges .lock-badge { display:none; }
   .stage-head { gap:6px; }
 }
+
+.voice-note { display:block; width:min(280px, 100%); min-width:190px; margin:6px 0; }
+.attachment-download { display:inline-block; font-size:12px; margin-top:4px; overflow-wrap:anywhere; }
