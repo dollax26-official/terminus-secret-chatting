@@ -709,6 +709,10 @@ class Handler(BaseHTTPRequestHandler):
             self._join_server(body)
             return
 
+        if path == "/api/servers/role":
+            self._change_server_role(body)
+            return
+
         if path == "/api/accounts/login":
             self._account_login(body)
             return
@@ -789,15 +793,23 @@ class Handler(BaseHTTPRequestHandler):
             device = self._require_device()
             if device is None:
                 return
-            if not ROOM_ADMIN_KEY:
-                self._error(403, "configure TERMINUS_ROOM_ADMIN_KEY to enable group rename/delete")
-                return
-            supplied_key = str(body.get("admin_key") or "")
-            if not hmac.compare_digest(supplied_key, ROOM_ADMIN_KEY):
-                self._error(403, "host group-management key required or invalid")
-                return
-            action = str(body.get("action") or "").strip().lower()
             room_id = str(body.get("room_id") or "").strip()
+            with db() as conn:
+                room_access = conn.execute(
+                    """SELECT r.server_id, sm.role FROM rooms r JOIN server_members sm ON sm.server_id=r.server_id
+                       WHERE r.id=? AND sm.account_id=?""",
+                    (room_id, device["account_id"]),
+                ).fetchone()
+            is_admin = bool(room_access and room_access["role"] in ("owner", "admin"))
+            if not is_admin:
+                if not ROOM_ADMIN_KEY:
+                    self._error(403, "only server owners/admins can manage channels; host admin key is not configured")
+                    return
+                supplied_key = str(body.get("admin_key") or "")
+                if not hmac.compare_digest(supplied_key, ROOM_ADMIN_KEY):
+                    self._error(403, "server owner/admin role or valid host group-management key required")
+                    return
+            action = str(body.get("action") or "").strip().lower()
             if not room_id or room_id == "general":
                 self._error(400, "a non-general room_id is required")
                 return
@@ -1166,6 +1178,42 @@ class Handler(BaseHTTPRequestHandler):
                 (server_id + "_general", "general", "General chat", now_iso(), server_id),
             )
         self._send_json(200, {"id": server_id, "name": name, "description": description, "invite_code": invite_code, "role": "owner"})
+
+    def _change_server_role(self, body: dict) -> None:
+        account_id = self._account_session_id()
+        if account_id is None:
+            self._error(401, "sign in first")
+            return
+        server_id = str(body.get("server_id") or "").strip()
+        username = str(body.get("username") or "").strip()
+        role = str(body.get("role") or "").strip().lower()
+        if role not in ("admin", "member"):
+            self._error(400, "role must be admin or member")
+            return
+        with db() as conn:
+            server = conn.execute("SELECT owner_account_id FROM servers WHERE id=?", (server_id,)).fetchone()
+            if server is None:
+                self._error(404, "server not found")
+                return
+            if server["owner_account_id"] != account_id:
+                self._error(403, "only the server owner can change roles")
+                return
+            target = conn.execute(
+                """SELECT a.id FROM accounts a JOIN server_members sm ON sm.account_id=a.id
+                   WHERE a.username=? COLLATE NOCASE AND sm.server_id=?""",
+                (username, server_id),
+            ).fetchone()
+            if target is None:
+                self._error(404, "that username is not a member of this server")
+                return
+            if target["id"] == account_id:
+                self._error(400, "the owner role cannot be changed")
+                return
+            conn.execute(
+                "UPDATE server_members SET role=? WHERE server_id=? AND account_id=?",
+                (role, server_id, target["id"]),
+            )
+        self._send_json(200, {"ok": True, "username": username, "role": role})
 
     def _join_server(self, body: dict) -> None:
         account_id = self._account_session_id()
