@@ -402,7 +402,7 @@
       ui.accountError.textContent = "Enter both your username and password.";
       return;
     }
-    if (!/^[\\p{L}\\p{N}_-]{3,24}$/u.test(username)) {
+    if (!/^[\p{L}\p{N}_-]{3,24}$/u.test(username)) {
       ui.accountError.textContent = "Username must be 3–24 characters using letters, numbers, _ or -.";
       return;
     }
