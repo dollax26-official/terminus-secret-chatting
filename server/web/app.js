@@ -51,6 +51,8 @@
     online: false,
     stopped: false,
     toastTimer: null,
+    typingTimer: null,
+    typingLastSent: 0,
     connecting: false,
     authMethod: "code",
     roomSignature: "",
@@ -297,6 +299,7 @@
     ui.syncState = $("#syncState");
     ui.railLive = $("#railLive");
     ui.messages = $("#messages");
+    ui.typingIndicator = $("#typingIndicator");
     ui.jumpBtn = $("#jumpBtn");
     ui.emptyState = $("#emptyState");
     ui.emptyTitle = $("#emptyTitle");
@@ -453,7 +456,14 @@
         submitComposer();
       }
     });
-    ui.input.addEventListener("input", autoGrow);
+    ui.input.addEventListener("input", () => {
+      autoGrow();
+      const typing = Boolean(ui.input.value.trim());
+      if (typing) sendTyping(true);
+      clearTimeout(state.typingTimer);
+      if (typing) state.typingTimer = setTimeout(() => sendTyping(false), 2200);
+      else sendTyping(false);
+    });
     ui.messages.addEventListener("scroll", updateJump, { passive: true });
     ui.jumpBtn.addEventListener("click", () => scrollToBottom());
 
@@ -741,6 +751,9 @@
       state.roomAdminRequired = data.room_admin_required;
     }
     state.devices = data.devices || state.devices;
+    const typingNames = Array.from(new Set((data.typing || []).filter((item) => item.room_id === state.currentRoom).map((item) => item.username)));
+    ui.typingIndicator.hidden = typingNames.length === 0;
+    ui.typingIndicator.textContent = typingNames.length ? `${typingNames.join(", ")} ${typingNames.length === 1 ? "is" : "are"} typing…` : "";
     state.lastId = data.last_id ?? state.lastId;
     state.syncSince = data.server_time || state.syncSince;
     if (data.you) state.deviceId = data.you;
@@ -958,6 +971,7 @@
   }
 
   function selectRoom(roomId) {
+    sendTyping(false);
     if (state.currentRoom === roomId) {
       ui.chatView.classList.remove("rail-open");
       return;
@@ -1355,6 +1369,17 @@
   }
 
   /* ------------------------------------------------------------------- send */
+  function sendTyping(typing) {
+    if (!state.token || !state.currentRoom) return;
+    const now = Date.now();
+    if (typing && now - state.typingLastSent < 1200) return;
+    if (typing) state.typingLastSent = now;
+    api("/api/typing", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ room_id: state.currentRoom, typing: Boolean(typing) }),
+    }).catch(() => {});
+  }
+
   function autoGrow() {
     ui.input.style.height = "auto";
     ui.input.style.height = `${Math.min(ui.input.scrollHeight, 168)}px`;
@@ -1363,6 +1388,8 @@
   function submitComposer() {
     const text = ui.input.value.replace(/\s+$/, "");
     if (!text.trim()) return;
+    clearTimeout(state.typingTimer);
+    sendTyping(false);
     const replyTo = state.replyTo;
     state.replyTo = null;
     ui.input.placeholder = `Message #${currentRoom().name || "general"}`;
