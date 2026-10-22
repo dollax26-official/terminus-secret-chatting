@@ -316,7 +316,7 @@
 <dialog id="roomDialog" class="dialog">
   <form id="roomForm" class="dialog-inner" method="dialog">
     <header class="dialog-head">
-      <h3>New channel</h3>
+      <h3 id="roomDialogTitle">New channel</h3>
       <button value="cancel" class="icon-btn" aria-label="Close">×</button>
     </header>
     <label class="field">
@@ -333,9 +333,15 @@
     </label>
     <label class="private-channel-toggle"><input id="roomPrivateInput" type="checkbox"> Private channel — only invited members can read it</label>
     <p class="form-error" id="roomError" role="alert"></p>
-    <footer class="dialog-foot">
-      <button type="button" value="cancel" class="ghost-btn" data-close>Cancel</button>
-      <button type="submit" class="primary small">Create channel</button>
+    <footer class="dialog-foot room-dialog-actions">
+      <div class="foot-left">
+        <button type="button" id="addRoomMemberBtn" class="ghost-btn compact" hidden>Add member</button>
+        <button type="button" id="deleteRoomBtn" class="danger-btn" hidden>Delete channel</button>
+      </div>
+      <div class="foot-right">
+        <button type="button" value="cancel" class="ghost-btn" data-close>Cancel</button>
+        <button type="submit" id="roomSubmitBtn" class="primary small">Create channel</button>
+      </div>
     </footer>
   </form>
 </dialog>
