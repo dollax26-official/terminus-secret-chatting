@@ -69,10 +69,26 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - uses: android-actions/setup-android@v3
-      - name: Install Android SDK platform and build tools
+      - name: Install Android command-line SDK
         shell: pwsh
-        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+        run: |
+          $sdk = Join-Path $env:RUNNER_TEMP "android-sdk"
+          $zip = Join-Path $env:RUNNER_TEMP "commandlinetools-win.zip"
+          $unpack = Join-Path $env:RUNNER_TEMP "android-cmdline-tools"
+          Invoke-WebRequest -Uri "https://dl.google.com/android/repository/commandlinetools-win-13114758_latest.zip" -OutFile $zip
+          if (Test-Path $unpack) { Remove-Item $unpack -Recurse -Force }
+          Expand-Archive -Path $zip -DestinationPath $unpack -Force
+          $tools = Join-Path $sdk "cmdline-tools/latest"
+          New-Item -ItemType Directory -Force -Path $tools | Out-Null
+          Copy-Item (Join-Path $unpack "cmdline-tools/*") $tools -Recurse -Force
+          "ANDROID_HOME=$sdk" >> $env:GITHUB_ENV
+          "ANDROID_SDK_ROOT=$sdk" >> $env:GITHUB_ENV
+          "$tools/bin" >> $env:GITHUB_PATH
+          $sdkmanager = Join-Path $tools "bin/sdkmanager.bat"
+          1..30 | ForEach-Object { "y" } | & $sdkmanager "--sdk_root=$sdk" --licenses
+          if ($LASTEXITCODE -ne 0) { throw "Android SDK license acceptance failed." }
+          & $sdkmanager "--sdk_root=$sdk" "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+          if ($LASTEXITCODE -ne 0) { throw "Android SDK package installation failed." }
       - name: Configure APK signing
         shell: pwsh
         env:
