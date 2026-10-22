@@ -1148,6 +1148,33 @@ class Handler(BaseHTTPRequestHandler):
             self._error(403, "invalid pairing code")
             return
 
+        # When a user deliberately reconnects to a saved host, accept the
+        # existing device token only after re-validating the pairing code.
+        # This avoids creating a duplicate device row on every reconnect.
+        authorization = self.headers.get("Authorization", "")
+        if authorization.startswith("Bearer "):
+            old_token = authorization[7:].strip()
+            if old_token.startswith("ts_") and len(old_token) >= 20:
+                with db() as conn:
+                    existing = conn.execute(
+                        "SELECT id, name FROM devices WHERE token_hash=? AND account_id=? AND revoked=0",
+                        (sha256_hex(old_token), account_id),
+                    ).fetchone()
+                    if existing:
+                        conn.execute(
+                            "UPDATE devices SET name=?, last_seen=? WHERE id=?",
+                            (name, now_iso(), existing["id"]),
+                        )
+                        self._send_json(200, {
+                            "token": old_token,
+                            "device_id": existing["id"],
+                            "device_name": name,
+                            "server_name": SERVER_NAME,
+                            "fingerprint": CERT_FINGERPRINT,
+                            "reconnected": True,
+                        })
+                        return
+
         token = "ts_" + secrets.token_urlsafe(32)
         device_id = "dev_" + secrets.token_hex(6)
         with db() as conn:
