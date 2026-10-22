@@ -604,7 +604,7 @@ class Handler(BaseHTTPRequestHandler):
                     if rows or remaining <= 0 or wait == 0:
                         rooms = conn.execute(
                             """SELECT r.id,
-                                      CASE WHEN r.kind='dm' THEN COALESCE(
+                                      CASE WHEN r.kind='dm' AND (SELECT COUNT(*) FROM room_members rm3 WHERE rm3.room_id=r.id)=2 THEN COALESCE(
                                         (SELECT a.username FROM room_members rm2 JOIN accounts a ON a.id=rm2.account_id
                                          WHERE rm2.room_id=r.id AND rm2.account_id<>? LIMIT 1), r.name)
                                         ELSE r.name END AS name,
@@ -1347,44 +1347,68 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json(200, {"ok": True, "room_id": room_id, "username": username})
 
     def _open_dm(self, device: sqlite3.Row, body: dict) -> None:
-        username = str(body.get("username") or "").strip()
-        if not username or len(username) > 24:
-            self._error(400, "enter a valid username")
+        raw_names = body.get("usernames")
+        if isinstance(raw_names, list):
+            requested = [str(value).strip() for value in raw_names]
+        else:
+            raw = str(body.get("username") or "")
+            requested = [part.strip() for part in raw.split(",")]
+        requested = [name for name in requested if name]
+        if not requested or len(requested) > 8 or any(len(name) > 24 for name in requested):
+            self._error(400, "enter between 1 and 8 valid usernames")
+            return
+        if len({name.casefold() for name in requested}) != len(requested):
+            self._error(400, "duplicate usernames were provided")
             return
         with db() as conn:
-            target = conn.execute("SELECT id, username FROM accounts WHERE username=? COLLATE NOCASE", (username,)).fetchone()
-            if target is None:
-                self._error(404, "user not found")
-                return
-            account_id = device["account_id"]
-            if target["id"] == account_id:
-                self._error(400, "you cannot open a direct message with yourself")
-                return
+            targets = []
+            for username in requested:
+                target = conn.execute(
+                    "SELECT id, username FROM accounts WHERE username=? COLLATE NOCASE", (username,)
+                ).fetchone()
+                if target is None:
+                    self._error(404, f"user not found: {username}")
+                    return
+                if target["id"] == device["account_id"]:
+                    self._error(400, "you cannot open a direct message with yourself")
+                    return
+                targets.append(dict(target))
+            participants = [device["account_id"]] + [target["id"] for target in targets]
+            placeholders = ",".join("?" for _ in participants)
             existing = conn.execute(
-                """SELECT r.id, r.name, r.description, r.created_at, r.server_id, r.kind
-                   FROM rooms r JOIN room_members a ON a.room_id=r.id
-                   JOIN room_members b ON b.room_id=r.id
-                   WHERE r.kind='dm' AND a.account_id=? AND b.account_id=?
-                   GROUP BY r.id HAVING COUNT(DISTINCT a.account_id)=1
-                   ORDER BY r.created_at LIMIT 1""",
-                (account_id, target["id"]),
+                f"""SELECT r.id, r.name, r.description, r.created_at, r.server_id, r.kind
+                    FROM rooms r
+                    WHERE r.kind='dm'
+                      AND (SELECT COUNT(*) FROM room_members rm WHERE rm.room_id=r.id)=?
+                      AND NOT EXISTS (
+                        SELECT 1 FROM room_members rm WHERE rm.room_id=r.id
+                        AND rm.account_id NOT IN ({placeholders})
+                      )
+                      AND NOT EXISTS (
+                        SELECT 1 FROM (SELECT ? AS account_id UNION SELECT account_id FROM room_members WHERE room_id=r.id) x
+                        WHERE x.account_id NOT IN ({placeholders})
+                      )
+                    ORDER BY r.created_at ASC LIMIT 1""",
+                (len(participants), *participants, device["account_id"], *participants),
             ).fetchone()
-            if existing is None:
+            if existing is not None:
+                result = dict(existing)
+                if len(targets) == 1:
+                    result["name"] = targets[0]["username"]
+            else:
                 room_id = "dm_" + secrets.token_hex(8)
                 created = now_iso()
+                room_name = targets[0]["username"] if len(targets) == 1 else "Group: " + ", ".join(t["username"] for t in targets)
                 conn.execute(
                     "INSERT INTO rooms(id,name,description,created_at,server_id,kind) VALUES(?,?,?,?,?, 'dm')",
-                    (room_id, target["username"], "Direct message", created, "dm"),
+                    (room_id, room_name[:160], "Direct message", created, "dm"),
                 )
                 conn.executemany(
                     "INSERT INTO room_members(room_id,account_id,joined_at) VALUES(?,?,?)",
-                    [(room_id, account_id, created), (room_id, target["id"], created)],
+                    [(room_id, account_id, created) for account_id in participants],
                 )
-                result = {"id": room_id, "name": target["username"], "description": "Direct message",
+                result = {"id": room_id, "name": room_name[:160], "description": "Direct message",
                           "created_at": created, "server_id": "dm", "kind": "dm"}
-            else:
-                result = dict(existing)
-                result["name"] = target["username"]
         with MESSAGE_COND:
             MESSAGE_COND.notify_all()
         self._send_json(200, result)
