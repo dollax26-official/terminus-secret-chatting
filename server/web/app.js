@@ -1861,8 +1861,10 @@
       return;
     }
     if (location.hostname === "127.0.0.1" && location.port === "8756") {
-      fetch("/__switch-host", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: host.url }) })
-        .then(async (res) => { const data = await res.json().catch(() => ({})); if (!res.ok) throw new Error(data.error || "Could not switch host."); location.href = "/app/" + query; })
+      const fingerprint = window.prompt("Enter the SHA-256 certificate fingerprint printed by the host console:");
+      if (!fingerprint) return;
+      fetch("/__trust", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: host.url, fingerprint }) })
+        .then(async (res) => { const data = await res.json().catch(() => ({})); if (!data.ok) throw new Error(data.error || "Host fingerprint was not accepted."); location.href = "/app/" + query; })
         .catch((err) => toast(err.message || "Could not switch host.", "error"));
       return;
     }
