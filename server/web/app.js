@@ -458,6 +458,7 @@
     $("#videoCallBtn").addEventListener("click", () => startCall("video"));
     $("#screenShareBtn").addEventListener("click", () => startCall("screen"));
     $("#endCallBtn").addEventListener("click", () => endCall(true));
+    $("#callDialog").addEventListener("close", () => { if (state.activeCall) endCall(true); });
     $("#voiceMessageBtn").addEventListener("click", toggleVoiceMessage);
     ui.input.addEventListener("keydown", (event) => {
       if (event.key === "Enter" && !event.shiftKey) {
@@ -1911,7 +1912,8 @@
         await sendCallSignal(call.peerUsername, call.id, "answer", { description: call.pc.localDescription.toJSON() });
       } catch (err) {
         toast(err.message || "Could not answer call.", "error");
-        await endCall(true);
+        try { await sendCallSignal(signal.from_username, signal.call_id, "decline", {}); } catch (_) {}
+        await endCall(false);
       }
       return;
     }
