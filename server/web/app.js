@@ -43,6 +43,9 @@
     lastId: 0,
     syncSince: "",
     replyTo: null,
+    typingActive: false,
+    typingLastSent: 0,
+    typingTimer: null,
     currentRoom: localStorage.getItem(LS.room) || "general",
     unread: new Map(),
     lastRendered: { day: null, device: null, at: 0 },
@@ -295,6 +298,7 @@
     ui.roomTitle = $("#roomTitle");
     ui.messageSearch = $("#messageSearch");
     ui.roomMeta = $("#roomMeta");
+    ui.typingLabel = $("#typingLabel");
     ui.syncState = $("#syncState");
     ui.railLive = $("#railLive");
     ui.messages = $("#messages");
@@ -448,7 +452,11 @@
         submitComposer();
       }
     });
-    ui.input.addEventListener("input", autoGrow);
+    ui.input.addEventListener("input", () => {
+      autoGrow();
+      notifyTyping();
+    });
+    ui.input.addEventListener("blur", () => setTyping(false));
     ui.attachBtn.addEventListener("click", () => ui.attachInput.click());
     ui.attachInput.addEventListener("change", uploadSmallAttachment);
     ui.messages.addEventListener("scroll", updateJump, { passive: true });
@@ -1003,6 +1011,49 @@
     }
   }
 
+  function notifyTyping() {
+    if (!state.key || !state.currentRoom || ui.chatView.hidden) return;
+    const now = Date.now();
+    if (!state.typingActive || now - state.typingLastSent > 2500) {
+      state.typingActive = true;
+      state.typingLastSent = now;
+      api("/api/typing", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ room_id: state.currentRoom, typing: true }),
+      }).catch(() => {});
+    }
+    clearTimeout(state.typingTimer);
+    state.typingTimer = setTimeout(() => setTyping(false), 1800);
+  }
+
+  async function setTyping(active) {
+    clearTimeout(state.typingTimer);
+    const wasActive = state.typingActive;
+    state.typingActive = Boolean(active);
+    if (wasActive && !active && state.token && state.currentRoom) {
+      try {
+        await api("/api/typing", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ room_id: state.currentRoom, typing: false }),
+        });
+      } catch (_) {}
+    }
+  }
+
+  async function refreshTyping() {
+    if (ui.chatView.hidden || !state.token || !state.currentRoom) return;
+    try {
+      const res = await api(`/api/typing?room_id=${encodeURIComponent(state.currentRoom)}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const users = data.users || [];
+      ui.typingLabel.hidden = users.length === 0;
+      ui.typingLabel.textContent = users.length === 1
+        ? `${users[0]} is typing…`
+        : users.length > 1 ? `${users.slice(0, 2).join(", ")}${users.length > 2 ? ` and ${users.length - 2} others` : ""} are typing…` : "";
+    } catch (_) {}
+  }
+
   async function createDirectMessage() {
     if (!state.currentServer) {
       toast("Join or create a server first.", "error");
@@ -1128,6 +1179,7 @@
       ui.chatView.classList.remove("rail-open");
       return;
     }
+    setTyping(false);
     state.currentRoom = roomId;
     localStorage.setItem(LS.room, roomId);
     state.unread.delete(roomId);
@@ -1600,6 +1652,7 @@
     if (!text.trim()) return;
     const replyTo = state.replyTo;
     state.replyTo = null;
+    setTyping(false);
     ui.input.placeholder = `Message ${currentRoom().kind === "dm" ? "@" : "#"}${currentRoom().name || "general"}`;
     ui.input.value = "";
     autoGrow();
@@ -1849,6 +1902,7 @@
   async function init() {
     cacheUi();
     bindEvents();
+    setInterval(refreshTyping, 2500);
     ui.deviceInput.value = state.deviceName;
     ui.accountTitle = $("#accountTitle");
     ui.accountPanel.hidden = Boolean(state.accountToken);
