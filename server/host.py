@@ -558,23 +558,29 @@ class Handler(BaseHTTPRequestHandler):
                 after_signal = max(0, int((query.get("after") or ["0"])[0]))
             except ValueError:
                 after_signal = 0
-            if not room_id:
-                self._error(400, "room_id required")
-                return
             with db() as conn:
-                if not self._can_access_room(conn, device["account_id"], room_id):
-                    self._error(404, "conversation not found")
-                    return
                 conn.execute("DELETE FROM call_signals WHERE created_at < ?",
                              (datetime.fromtimestamp(time.time() - 86400, timezone.utc).isoformat().replace("+00:00", "Z"),))
-                rows = conn.execute(
-                    """SELECT id, sender_account_id, kind, payload, created_at
-                       FROM call_signals WHERE room_id=? AND id>? AND sender_account_id<>?
-                       ORDER BY id ASC LIMIT 100""",
-                    (room_id, after_signal, device["account_id"]),
-                ).fetchall()
+                if room_id:
+                    if not self._can_access_room(conn, device["account_id"], room_id):
+                        self._error(404, "conversation not found")
+                        return
+                    rows = conn.execute(
+                        """SELECT id, room_id, sender_account_id, kind, payload, created_at
+                           FROM call_signals WHERE room_id=? AND id>? AND sender_account_id<>?
+                           ORDER BY id ASC LIMIT 100""",
+                        (room_id, after_signal, device["account_id"]),
+                    ).fetchall()
+                else:
+                    rows = conn.execute(
+                        """SELECT cs.id, cs.room_id, cs.sender_account_id, cs.kind, cs.payload, cs.created_at
+                           FROM call_signals cs JOIN room_members rm ON rm.room_id=cs.room_id
+                           WHERE rm.account_id=? AND cs.id>? AND cs.sender_account_id<>?
+                           ORDER BY cs.id ASC LIMIT 100""",
+                        (device["account_id"], after_signal, device["account_id"]),
+                    ).fetchall()
             self._send_json(200, {"signals": [
-                {"id": row["id"], "sender_account_id": row["sender_account_id"],
+                {"id": row["id"], "room_id": row["room_id"], "sender_account_id": row["sender_account_id"],
                  "kind": row["kind"], "payload": json.loads(row["payload"]),
                  "created_at": row["created_at"]} for row in rows
             ]})
