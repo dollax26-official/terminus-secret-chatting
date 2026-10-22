@@ -323,6 +323,7 @@
     ui.roomForm = $("#roomForm");
     ui.roomNameInput = $("#roomNameInput");
     ui.roomDescriptionInput = $("#roomDescriptionInput");
+    ui.roomPrivateInput = $("#roomPrivateInput");
     ui.roomError = $("#roomError");
     ui.toast = $("#toast");
     ui.rail = $("#rail");
@@ -1551,7 +1552,7 @@
       const res = await api("/api/rooms", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, description, server_id: state.activeServerId }),
+        body: JSON.stringify({ name, description, server_id: state.activeServerId, private: ui.roomPrivateInput.checked }),
       });
       if (!res.ok) {
         let detail = "Could not create the group.";
@@ -1560,6 +1561,7 @@
       }
       const room = await res.json();
       ui.roomDialog.close();
+      ui.roomPrivateInput.checked = false;
       if (!state.rooms.some((r) => r.id === room.id)) state.rooms.push(room);
       selectRoom(room.id);
     } catch (err) {
@@ -1568,11 +1570,24 @@
   }
 
   async function manageRoom(room) {
-    const choice = window.prompt(`Manage "${room.name}": type rename or delete`);
+    const choices = room.kind === "private" ? "rename, delete, or add-member" : "rename or delete";
+    const choice = window.prompt(`Manage "${room.name}": type ${choices}`);
     if (choice === null) return;
     const action = choice.trim().toLowerCase();
+    if (action === "add-member" && room.kind === "private") {
+      const username = window.prompt("Username of a member who has already joined this server:");
+      if (username === null || !username.trim()) return;
+      try {
+        const res = await api("/api/rooms/member", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ room_id: room.id, username: username.trim() }) });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Could not add private-channel member.");
+        toast(`${username} added to #${room.name}.`);
+        await refreshSync();
+      } catch (err) { toast(err.message || "Could not add member.", "error"); }
+      return;
+    }
     if (action !== "rename" && action !== "delete") {
-      toast("Choose rename or delete.", "error");
+      toast("Choose rename, delete, or add-member for private channels.", "error");
       return;
     }
     let name = room.name;
