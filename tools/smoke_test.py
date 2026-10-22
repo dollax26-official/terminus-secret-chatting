@@ -104,7 +104,9 @@ def main():
             assert exc.code == 409, exc.code
 
         code = (DATA / "pairing-code.txt").read_text().strip()
+        vault_phrase = (DATA / "vault-passphrase.txt").read_text().strip()
         assert len(code) == 13, code
+        assert len(vault_phrase) >= 8, "vault phrase was not initialized"
 
         try:
             request("/api/sync", token="ts_invalid_token_0000000000")
@@ -162,7 +164,7 @@ def main():
         empty = get_json(f"/api/sync?after={sync['last_id']}&wait=0", token=device_b["token"])
         assert empty["messages"] == []
 
-        # Exercise multi-server channels, private membership, roles, and DMs.
+        # Exercise multi-server channels, private membership, roles, DMs, and server management.
         account1_token = ACCOUNT_TOKEN
         _, _, server_body = request(
             "/api/servers/create", method="POST",
@@ -170,6 +172,14 @@ def main():
         )
         server = json.loads(server_body)
         assert server["role"] == "owner" and server["invite_code"]
+        _, _, renamed_body = request(
+            "/api/servers/manage", method="POST", token=device_a["token"],
+            payload={"action": "rename", "server_id": server["id"], "name": "Protocol Test Server Updated", "description": "updated by smoke test"},
+        )
+        renamed = json.loads(renamed_body)
+        assert renamed["name"] == "Protocol Test Server Updated"
+        assert renamed["description"] == "updated by smoke test"
+        server["name"] = renamed["name"]
 
         _, _, public_body = request(
             "/api/rooms", method="POST", token=device_a["token"],
@@ -247,6 +257,15 @@ def main():
         assert next(server_row for server_row in admin_sync["servers"] if server_row["id"] == server["id"])["role"] == "admin"
         ACCOUNT_TOKEN = account1_token
 
+        # Owner can delete a non-default server and its channels.
+        _, _, deleted_body = request(
+            "/api/servers/manage", method="POST", token=device_a["token"],
+            payload={"action": "delete", "server_id": server["id"]},
+        )
+        assert json.loads(deleted_body)["deleted"] == server["id"]
+        deleted_sync = get_json("/api/sync?after=0&wait=0", token=device_a["token"])
+        assert all(item["id"] != server["id"] for item in deleted_sync["servers"])
+
         # Vault check blob round-trip (the web client stores a known marker).
         marker_nonce = os.urandom(12)
         marker_ct = AESGCM(key).encrypt(
@@ -303,8 +322,9 @@ def main():
         else:
             raise RuntimeError("host did not restart")
         assert (DATA / "pairing-code.txt").read_text().strip() == code, "pairing code changed on restart"
+        assert (DATA / "vault-passphrase.txt").read_text().strip() == vault_phrase, "vault phrase changed on restart"
 
-        print("PASS  host, stable pairing, unique usernames, encrypted DMs/call signaling, sync, at-rest, static UI")
+        print("PASS  host, stable pairing/vault, unique usernames, server management, encrypted DMs/call signaling, sync, at-rest, static UI")
         print(f"      devices={len(sync['devices'])} messages={len(sync['messages'])}")
     finally:
         process.terminate()
