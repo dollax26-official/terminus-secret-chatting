@@ -977,3 +977,21 @@ button:focus:not(:focus-visible) { outline: none; }
 .mention-self { color:var(--accent); background:var(--accent-soft); }
 
 .channel-category { padding:12px 9px 5px; color:var(--faint); font-family:var(--mono); font-size:9px; letter-spacing:.16em; font-weight:700; }
+
+
+/* ------------------------------------------------------------ calls/media */
+.call-actions { display:flex; gap:4px; align-items:center; }
+.call-actions .icon-btn { min-width:32px; width:32px; padding:0; }
+.call-dialog { width:min(680px, calc(100vw - 28px)); max-width:680px; }
+.call-dialog-inner { display:flex; flex-direction:column; gap:14px; }
+.call-dialog #remoteVideo { display:block; width:100%; max-height:58vh; min-height:120px; object-fit:contain; background:#020407; border:1px solid var(--line); border-radius:12px; }
+.call-dialog #remoteVideo[hidden] { display:none; }
+.call-dialog #remoteAudio { width:100%; }
+.call-dialog .dialog-head { align-items:center; }
+.call-dialog .dialog-foot { justify-content:space-between; }
+@media (max-width: 820px) {
+  .call-actions { gap:1px; }
+  .call-actions .icon-btn { min-width:29px; width:29px; }
+  .head-badges .lock-badge { display:none; }
+  .stage-head { gap:6px; }
+}
