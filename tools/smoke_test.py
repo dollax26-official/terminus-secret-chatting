@@ -278,6 +278,15 @@ def main():
         assert private_room["id"] in {room["id"] for room in third_sync["rooms"]}
 
         ACCOUNT_TOKEN = other_account["account_token"]
+        request(
+            "/api/rooms/member", method="POST", token=master_device["token"],
+            payload={"room_id": private_room["id"], "username": "smoke_third", "action": "remove"},
+        )
+        ACCOUNT_TOKEN = third_account["account_token"]
+        third_sync_after_removal = get_json("/api/sync?after=0&wait=0", token=third_device["token"])
+        assert private_room["id"] not in {room["id"] for room in third_sync_after_removal["rooms"]}
+
+        ACCOUNT_TOKEN = other_account["account_token"]
         # A normal member cannot rename or delete the owner's server.
         try:
             request("/api/servers/manage", method="POST", token=other_device["token"],
