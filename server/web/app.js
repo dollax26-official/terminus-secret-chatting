@@ -1846,6 +1846,9 @@
       const list = readSavedHosts().filter((item) => item.url !== host.url);
       list.unshift(host);
       localStorage.setItem("ts.saved-hosts", JSON.stringify(list.slice(0, 20)));
+      if (window.TerminusNative && typeof window.TerminusNative.saveHosts === "function") {
+        window.TerminusNative.saveHosts(JSON.stringify(list.slice(0, 20)));
+      }
       state.savedHosts = list.slice(0, 20);
       renderSavedHosts();
       toast("Saved host address. Reconnecting will require your account, pairing code, and vault phrase.");
