@@ -63,6 +63,7 @@ PUBLIC_URL = ""
 MESSAGE_COND = threading.Condition()
 PAIR_LOCK = threading.Lock()
 PAIR_ATTEMPTS: dict[str, list[float]] = {}
+ACCOUNT_ATTEMPTS: dict[str, list[float]] = {}
 LAST_SEEN_CACHE: dict[str, float] = {}
 
 MIME_OVERRIDES = {
@@ -907,7 +908,22 @@ class Handler(BaseHTTPRequestHandler):
 
         self._error(404, "not found")
 
+    def _account_rate_allowed(self) -> bool:
+        ip = self.client_address[0]
+        with PAIR_LOCK:
+            now = time.time()
+            attempts = [stamp for stamp in ACCOUNT_ATTEMPTS.get(ip, []) if now - stamp < 60]
+            if len(attempts) >= 10:
+                ACCOUNT_ATTEMPTS[ip] = attempts
+                return False
+            attempts.append(now)
+            ACCOUNT_ATTEMPTS[ip] = attempts
+            return True
+
     def _account_register(self, body: dict) -> None:
+        if not self._account_rate_allowed():
+            self._error(429, "too many account attempts; wait a minute")
+            return
         username = str(body.get("username") or "").strip()
         password = str(body.get("password") or "")
         if not (3 <= len(username) <= 24) or not all(ch.isalnum() or ch in "_-" for ch in username):
@@ -939,6 +955,9 @@ class Handler(BaseHTTPRequestHandler):
         self._create_account_session(account_id, username)
 
     def _account_login(self, body: dict) -> None:
+        if not self._account_rate_allowed():
+            self._error(429, "too many account attempts; wait a minute")
+            return
         username = str(body.get("username") or "").strip()
         password = str(body.get("password") or "")
         with db() as conn:
