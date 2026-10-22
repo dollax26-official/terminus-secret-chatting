@@ -1471,6 +1471,9 @@ class Handler(BaseHTTPRequestHandler):
             if member is None:
                 self._error(404, "that user is not a member of this server")
                 return
+            if member["role"] == "owner":
+                self._error(403, "the server owner's role cannot be changed")
+                return
             conn.execute("UPDATE server_members SET role=? WHERE server_id=? AND account_id=?",
                          (role, server_id, target["id"]))
         with MESSAGE_COND:
