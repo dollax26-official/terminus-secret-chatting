@@ -6,11 +6,13 @@ Terminus Secrets - host server
 Runs on the owner's laptop. It is deliberately "dumb":
 
   * it authenticates paired devices with long-lived random tokens,
-  * it stores and relays *ciphertext* only,
-  * it keeps every message in a SQLite database on this machine.
+  * it stores and relays encrypted chat-message bodies,
+  * it keeps chat history and temporary WebRTC signaling metadata in SQLite.
 
 The vault key never reaches this process. Clients derive it from a passphrase
-(PBKDF2-HMAC-SHA256, 600k iterations) and encrypt with AES-256-GCM.
+(PBKDF2-HMAC-SHA256, 600k iterations) and encrypt message content with AES-256-GCM.
+WebRTC media is peer-to-peer when possible; call signaling and ICE metadata pass
+through the host and are not chat-message ciphertext.
 
 Usage:
     python host.py                 # https://0.0.0.0:8443
