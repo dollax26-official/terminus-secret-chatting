@@ -596,9 +596,13 @@ class Handler(BaseHTTPRequestHandler):
                             "WHERE revoked=0 AND account_id=? ORDER BY created_at ASC",
                             (device["account_id"],),
                         ).fetchall()
+                        cursor_id = max([after] + [row["id"] for row in rows])
                         more = conn.execute(
-                            "SELECT 1 FROM messages WHERE id > ? LIMIT 1",
-                            (rows[-1]["id"] if rows else after,),
+                            """SELECT 1 FROM messages m WHERE m.id > ? AND m.room_id IN (
+                                   SELECT r.id FROM rooms r JOIN server_members sm ON sm.server_id=r.server_id
+                                   WHERE sm.account_id=? AND r.server_id=?
+                               ) LIMIT 1""",
+                            (cursor_id, device["account_id"], server_id),
                         ).fetchone()
                         payload = {
                             "messages": [
