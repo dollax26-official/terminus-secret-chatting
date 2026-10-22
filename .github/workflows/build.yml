@@ -103,12 +103,6 @@ jobs:
           & "$env:ANDROID_HOME/build-tools/36.0.0/apksigner.bat" verify --print-certs $apk
           Get-FileHash $apk -Algorithm SHA256
           if ($env:TERMINUS_APK_STABLE_SIGNING -ne "true") {
-            @"
-          CI signing note:
-          This APK was signed with a temporary CI key because stable signing secrets were not configured.
-          To install it over an existing copy signed with another key, Android will require uninstalling the old app first.
-          Configure repository secrets TERMINUS_KEYSTORE_BASE64 and TERMINUS_APK_SIGNING_PASSWORD to preserve the same signing identity across builds.
-          "@
             $note = @"
           CI signing note:
           This APK was signed with a temporary CI key because stable signing secrets were not configured.
