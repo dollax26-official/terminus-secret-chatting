@@ -1280,11 +1280,12 @@ class Handler(BaseHTTPRequestHandler):
             if not targets:
                 self._error(400, "choose at least one other member")
                 return
+            own = conn.execute("SELECT username FROM accounts WHERE id=?", (account_id,)).fetchone()
             dm_id = "dm_" + secrets.token_hex(8)
-            display_names = [row["username"] for row in targets]
+            display_names = [own["username"]] + [row["username"] for row in targets]
             conn.execute(
                 "INSERT INTO rooms(id,name,description,created_at,server_id,kind) VALUES(?,?,?,?,?,'dm')",
-                (dm_id, ", ".join(display_names), "Direct message", now_iso(), server_id),
+                (dm_id, " ↔ ".join(display_names), "Direct message", now_iso(), server_id),
             )
             conn.execute(
                 "INSERT INTO room_members(room_id,account_id,joined_at) VALUES(?,?,?)",
