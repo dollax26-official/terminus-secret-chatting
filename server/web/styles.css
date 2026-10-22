@@ -737,6 +737,24 @@ a:hover { text-decoration: underline; }
 .dialog-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
 .dialog-head h3 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
 
+ .role-member-list {
+  max-height: 180px;
+  overflow: auto;
+  list-style: none;
+  padding: 0;
+  margin: 0 0 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+}
+.role-member {
+  padding: 9px 11px;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.role-member:last-child { border-bottom: 0; }
+.role-member.muted { color: var(--muted); }
+
 .info-block { padding: 14px 0; border-top: 1px solid var(--line-soft); }
 .info-block .eyebrow { margin-bottom: 7px; }
 .info-block p { margin: 0 0 12px; font-size: 12.5px; }

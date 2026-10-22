@@ -442,6 +442,22 @@
   }
 
   function bindEvents() {
+    ui.roleDialog = $("#roleDialog");
+    ui.roleForm = $("#roleForm");
+    ui.roleMemberList = $("#roleMemberList");
+    ui.roleUsername = $("#roleUsername");
+    ui.roleValue = $("#roleValue");
+    ui.roleError = $("#roleError");
+    ui.roleSubmitBtn = $("#roleSubmitBtn");
+    ui.roomMemberDialog = $("#roomMemberDialog");
+    ui.roomMemberForm = $("#roomMemberForm");
+    ui.roomMemberUsername = $("#roomMemberUsername");
+    ui.roomMemberError = $("#roomMemberError");
+    ui.roomMemberSubmitBtn = $("#roomMemberSubmitBtn");
+    ui.roleForm.addEventListener("submit", submitServerRole);
+    ui.roomMemberForm.addEventListener("submit", submitEditingRoomMember);
+    $("#closeRoleDialogBtn").addEventListener("click", () => ui.roleDialog.close());
+    $("#closeRoomMemberDialogBtn").addEventListener("click", () => ui.roomMemberDialog.close());
     ui.accountForm = $("#accountForm");
     ui.accountPanel = $("#accountPanel");
     ui.accountError = $("#accountError");
@@ -1691,21 +1707,43 @@
     const server = state.servers.find((item) => item.id === state.activeServerId);
     if (!server) { toast("Select a server first.", "error"); return; }
     if (server.role !== "owner") { toast("Only the server owner can manage member roles.", "error"); return; }
+    ui.roleError.textContent = "";
+    ui.roleUsername.value = "";
+    ui.roleValue.value = "admin";
+    ui.roleMemberList.replaceChildren();
     const members = state.serverMembers.filter((member) => member.server_id === server.id);
-    window.alert("Server members:\\n" + (members.map((member) => `${member.username} — ${member.role}`).join("\\n") || "No members loaded"));
-    const username = window.prompt("Username of an existing server member:");
-    if (username === null || !username.trim()) return;
-    const role = window.prompt("Set role: type admin or member", "admin");
-    if (role === null) return;
-    const normalized = role.trim().toLowerCase();
-    if (!["admin", "member"].includes(normalized)) { toast("Role must be admin or member.", "error"); return; }
+    for (const member of members) {
+      const item = el("li", "role-member", `${member.display_name || member.username} (@${member.username}) — ${member.role}`);
+      ui.roleMemberList.append(item);
+    }
+    if (!members.length) ui.roleMemberList.append(el("li", "role-member muted", "No member list is available yet."));
+    ui.roleDialog.showModal();
+    setTimeout(() => ui.roleUsername.focus(), 40);
+  }
+
+  async function submitServerRole(event) {
+    event.preventDefault();
+    const server = state.servers.find((item) => item.id === state.activeServerId);
+    const username = ui.roleUsername.value.trim();
+    const normalized = ui.roleValue.value;
+    ui.roleError.textContent = "";
+    if (!server || !username) {
+      ui.roleError.textContent = "Enter the unique username of a member in this server.";
+      return;
+    }
+    ui.roleSubmitBtn.disabled = true;
     try {
-      const res = await api("/api/servers/role", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ server_id: server.id, username: username.trim(), role: normalized }) });
+      const res = await api("/api/servers/role", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ server_id: server.id, username, role: normalized }) });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Could not change role.");
-      toast(`${username} is now ${normalized}.`);
+      ui.roleDialog.close();
+      toast(`@${username} is now ${normalized}.`);
       await refreshSync();
-    } catch (err) { toast(err.message || "Could not change role.", "error"); }
+    } catch (err) {
+      ui.roleError.textContent = err.message || "Could not change role.";
+    } finally {
+      ui.roleSubmitBtn.disabled = false;
+    }
   }
 
   async function openDirectMessage() {
@@ -1838,23 +1876,37 @@
   async function addEditingRoomMember() {
     const room = state.rooms.find((item) => item.id === state.editingRoomId);
     if (!room || room.kind !== "private") return;
-    const username = window.prompt("Username of a member who has already joined this server:");
-    if (username === null || !username.trim()) return;
-    ui.addRoomMemberBtn.disabled = true;
+    ui.roomMemberError.textContent = "";
+    ui.roomMemberUsername.value = "";
+    ui.roomMemberDialog.showModal();
+    setTimeout(() => ui.roomMemberUsername.focus(), 40);
+  }
+
+  async function submitEditingRoomMember(event) {
+    event.preventDefault();
+    const room = state.rooms.find((item) => item.id === state.editingRoomId);
+    const username = ui.roomMemberUsername.value.trim();
+    ui.roomMemberError.textContent = "";
+    if (!room || room.kind !== "private" || !username) {
+      ui.roomMemberError.textContent = "Enter the unique username of a member who already joined this server.";
+      return;
+    }
+    ui.roomMemberSubmitBtn.disabled = true;
     try {
       const res = await api("/api/rooms/member", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ room_id: room.id, username: username.trim() }),
+        body: JSON.stringify({ room_id: room.id, username }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Could not add private-channel member.");
-      toast(`${username.trim()} added to #${room.name}.`);
+      ui.roomMemberDialog.close();
+      toast(`@${username} added to private channel #${room.name}.`);
       await refreshSync();
     } catch (err) {
-      ui.roomError.textContent = err.message || "Could not add member.";
+      ui.roomMemberError.textContent = err.message || "Could not add member.";
     } finally {
-      ui.addRoomMemberBtn.disabled = false;
+      ui.roomMemberSubmitBtn.disabled = false;
     }
   }
 

@@ -12,7 +12,7 @@ Before changing the shared web client, consult [UI Guides & Agent Rules](https:/
 - **MUST** make destructive actions explicit, explain what data is removed, and require confirmation before deleting a server/channel.
 - **MUST** respect `prefers-reduced-motion`; avoid layout shifts, horizontal page overflow, and unnecessary animated decoration.
 - **MUST** not imply a call or screen share works when browser/WebView permissions or platform APIs are unavailable. Show a clear, actionable error.
-- **SHOULD** prefer inline dialogs and toasts over browser prompt/alert dialogs for new UI. Keep existing behavior functional until a replacement is tested.
+- **SHOULD** prefer inline dialogs and toasts over browser prompt/alert dialogs. Member-role and private-channel access changes use labeled, inline forms with recoverable errors.
 - **SHOULD** keep the shared `server/web/` interface as the source of truth for both Android and Windows clients.
 - **SHOULD** keep background polling modest, stop media tracks when a call ends, and avoid large bundled assets to reduce memory use.
 

@@ -379,6 +379,52 @@
   </form>
 </dialog>
 
+<dialog id="roleDialog" class="dialog">
+  <form id="roleForm" class="dialog-inner" method="dialog">
+    <header class="dialog-head">
+      <h3>Server members &amp; roles</h3>
+      <button type="button" id="closeRoleDialogBtn" class="icon-btn" aria-label="Close">×</button>
+    </header>
+    <p class="muted">Only the server owner can change roles. Use a unique username; display names may repeat.</p>
+    <ul id="roleMemberList" class="role-member-list" aria-label="Current server members"></ul>
+    <label class="field">
+      <span>Member username</span>
+      <input id="roleUsername" maxlength="24" autocomplete="off" placeholder="unique_username" required>
+    </label>
+    <label class="field">
+      <span>Assign role</span>
+      <select id="roleValue">
+        <option value="admin">Admin — manage channels and private membership</option>
+        <option value="member">Member — regular access</option>
+      </select>
+    </label>
+    <p id="roleError" class="form-error" role="alert"></p>
+    <footer class="dialog-foot">
+      <button type="button" class="ghost-btn" id="closeRoleDialogBtnBottom" onclick="document.getElementById('roleDialog').close()">Cancel</button>
+      <button type="submit" id="roleSubmitBtn" class="primary small">Save role</button>
+    </footer>
+  </form>
+</dialog>
+
+<dialog id="roomMemberDialog" class="dialog">
+  <form id="roomMemberForm" class="dialog-inner" method="dialog">
+    <header class="dialog-head">
+      <h3>Add private-channel member</h3>
+      <button type="button" id="closeRoomMemberDialogBtn" class="icon-btn" aria-label="Close">×</button>
+    </header>
+    <p class="muted">The person must already be a member of this server. Only invited members, server owners, and admins can access this private channel.</p>
+    <label class="field">
+      <span>Member username</span>
+      <input id="roomMemberUsername" maxlength="24" autocomplete="off" placeholder="unique_username" required>
+    </label>
+    <p id="roomMemberError" class="form-error" role="alert"></p>
+    <footer class="dialog-foot">
+      <button type="button" class="ghost-btn" onclick="document.getElementById('roomMemberDialog').close()">Cancel</button>
+      <button type="submit" id="roomMemberSubmitBtn" class="primary small">Add member</button>
+    </footer>
+  </form>
+</dialog>
+
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 <noscript><p class="noscript">Terminus Secrets needs JavaScript for end-to-end encryption.</p></noscript>
 
