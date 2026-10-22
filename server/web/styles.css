@@ -1006,3 +1006,8 @@ button:focus:not(:focus-visible) { outline: none; }
 .host-entry-name { max-width:100%; font-size:12px; font-weight:650; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .host-entry-url { display:block; width:100%; color:var(--faint); font:9px var(--mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .host-list-empty { margin:4px 8px 10px; color:var(--faint); font-size:10px; line-height:1.4; }
+
+.host-entry-row { display:flex; align-items:stretch; gap:3px; min-width:0; }
+.host-entry-row .host-entry { flex:1; min-width:0; }
+.host-remove { flex:0 0 27px; border:1px solid transparent; border-radius:7px; background:transparent; color:var(--faint); cursor:pointer; }
+.host-remove:hover,.host-remove:focus-visible { color:var(--danger); border-color:var(--line); background:var(--panel-2); }
