@@ -39,6 +39,7 @@ Terminus Secrets gives you a Windows desktop client and an Android client that t
 
 - Create multiple servers, invite members with a server invite code, switch between servers, and create channels inside a server. The first account claims the default server as owner; owners can promote members to admins or demote them back to members. Owners/admins can create and manage channels.
 - Reply to a message, add/remove emoji reactions, pin/unpin messages, and edit or delete messages you authored. Changes sync to connected clients.
+- Typing indicators appear for other members in the current channel or DM. Existing unread indicators and browser notification controls remain available.
 - Attach small files (up to 32 KB each). File bytes are embedded in the encrypted message payload; the current limit keeps requests within the host's message-size limits.
 - Message content remains encrypted in the browser before upload. Edits replace the stored ciphertext, and deletion is a soft-delete marker so connected clients can update their view.
 - Direct messages and group DMs are supported between members of the same server; local message search is available across the decrypted history loaded on the current device.
