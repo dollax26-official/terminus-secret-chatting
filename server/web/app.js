@@ -853,8 +853,11 @@
       else updateEmptyState();
     }
 
-    if (incoming.length && document.hidden) {
-      notifyNew(incoming[incoming.length - 1]);
+    const mention = incoming.find((message) => state.account?.username &&
+      (message.text || "").toLowerCase().includes("@" + state.account.username.toLowerCase()) &&
+      message.device_id !== state.deviceId);
+    if (incoming.length && (document.hidden || (mention && mention.room_id !== state.currentRoom))) {
+      notifyNew(mention || incoming[incoming.length - 1]);
     }
     updateTitle();
   }
@@ -1231,16 +1234,21 @@
   }
 
   function fillText(node, text) {
-    const pattern = /(https?:\/\/[^\s<]+)/g;
+    const pattern = /(https?:\/\/[^\s<]+|@[A-Za-z0-9_-]{3,24})/g;
     let index = 0;
     let match;
     while ((match = pattern.exec(text)) !== null) {
       if (match.index > index) node.append(document.createTextNode(text.slice(index, match.index)));
-      const link = el("a", "", match[0]);
-      link.href = match[0];
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-      node.append(link);
+      if (match[0].startsWith("http")) {
+        const link = el("a", "", match[0]);
+        link.href = match[0];
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        node.append(link);
+      } else {
+        const isMe = state.account?.username && match[0].slice(1).toLowerCase() === state.account.username.toLowerCase();
+        node.append(el("span", isMe ? "mention mention-self" : "mention", match[0]));
+      }
       index = match.index + match[0].length;
     }
     if (index < text.length) node.append(document.createTextNode(text.slice(index)));
@@ -1282,8 +1290,9 @@
         return;
       }
       if (!("Notification" in window) || Notification.permission !== "granted") return;
-      const notification = new Notification("Terminus Secrets", {
-        body: `New encrypted message in #${roomName}`,
+      const mentioned = state.account?.username && (message.text || "").toLowerCase().includes("@" + state.account.username.toLowerCase());
+      const notification = new Notification(mentioned ? "You were mentioned" : "Terminus Secrets", {
+        body: mentioned ? `You were mentioned in ${roomName}` : `New encrypted message in ${roomName}`,
         tag: `terminus-${message.room_id}`,
         silent: false,
       });
