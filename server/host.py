@@ -1533,8 +1533,9 @@ class Handler(BaseHTTPRequestHandler):
     def _add_private_room_member(self, device: sqlite3.Row, body: dict) -> None:
         room_id = str(body.get("room_id") or "").strip()
         username = str(body.get("username") or "").strip()
-        if not room_id or not username:
-            self._error(400, "room_id and username are required")
+        action = str(body.get("action") or "add").strip().lower()
+        if not room_id or not username or action not in ("add", "remove"):
+            self._error(400, "room_id, username, and action (add/remove) are required")
             return
         with db() as conn:
             room = conn.execute("SELECT server_id, kind FROM rooms WHERE id=?", (room_id,)).fetchone()
@@ -1552,19 +1553,26 @@ class Handler(BaseHTTPRequestHandler):
             if target is None:
                 self._error(404, "user not found")
                 return
-            if not conn.execute(
-                "SELECT 1 FROM server_members WHERE server_id=? AND account_id=?",
+            target_member = conn.execute(
+                "SELECT role FROM server_members WHERE server_id=? AND account_id=?",
                 (room["server_id"], target["id"]),
-            ).fetchone():
+            ).fetchone()
+            if target_member is None:
                 self._error(400, "that user must join this server first")
                 return
-            conn.execute(
-                "INSERT OR IGNORE INTO room_members(room_id,account_id,joined_at) VALUES(?,?,?)",
-                (room_id, target["id"], now_iso()),
-            )
+            if action == "remove":
+                if target_member["role"] in ("owner", "admin"):
+                    self._error(400, "server owners and admins always have private-channel access; change their server role first")
+                    return
+                conn.execute("DELETE FROM room_members WHERE room_id=? AND account_id=?", (room_id, target["id"]))
+            else:
+                conn.execute(
+                    "INSERT OR IGNORE INTO room_members(room_id,account_id,joined_at) VALUES(?,?,?)",
+                    (room_id, target["id"], now_iso()),
+                )
         with MESSAGE_COND:
             MESSAGE_COND.notify_all()
-        self._send_json(200, {"ok": True, "room_id": room_id, "username": username})
+        self._send_json(200, {"ok": True, "action": action, "room_id": room_id, "username": username})
 
     def _open_dm(self, device: sqlite3.Row, body: dict) -> None:
         raw_names = body.get("usernames")
