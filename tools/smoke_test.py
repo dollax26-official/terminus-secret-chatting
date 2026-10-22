@@ -187,6 +187,14 @@ def main():
         )
         public_room = json.loads(public_body)
         assert public_room["category"] == "Community" and public_room["kind"] == "text"
+        _, _, edited_room_body = request(
+            "/api/rooms/manage", method="POST", token=device_a["token"],
+            payload={"action": "rename", "room_id": public_room["id"], "name": "news", "category": "Updates", "description": "edited channel"},
+        )
+        edited_room = json.loads(edited_room_body)
+        assert edited_room["name"] == "news" and edited_room["category"] == "Updates"
+        assert edited_room["description"] == "edited channel"
+        public_room = edited_room
 
         _, _, private_body = request(
             "/api/rooms", method="POST", token=device_a["token"],
@@ -206,6 +214,14 @@ def main():
             "/api/pair", method="POST", payload={"code": code, "device_name": "Other phone"}
         )
         other_device = json.loads(other_device_body)
+
+        # A normal member cannot rename or delete the owner's server.
+        try:
+            request("/api/servers/manage", method="POST", token=other_device["token"],
+                    payload={"action": "rename", "server_id": server["id"], "name": "unauthorized edit"})
+            raise AssertionError("non-owner changed a server")
+        except urllib.error.HTTPError as exc:
+            assert exc.code == 403, exc.code
 
         ACCOUNT_TOKEN = account1_token
         _, _, dm_body = request(
