@@ -29,6 +29,7 @@
     deviceId: localStorage.getItem(LS.device) || "",
     deviceName: localStorage.getItem(LS.name) || guessDeviceName(),
     server: null,
+    hostAdmin: false,
     salt: null,
     iterations: 600000,
     key: null,
@@ -840,6 +841,7 @@
     state.rooms = data.rooms || state.rooms;
     state.servers = data.servers || state.servers;
     state.serverMembers = data.server_members || state.serverMembers;
+    state.hostAdmin = Boolean(data.host_admin);
     if (!state.activeServerId || !state.servers.some((server) => server.id === state.activeServerId)) {
       state.activeServerId = state.servers[0]?.id || "";
       if (state.activeServerId) localStorage.setItem("ts.server", state.activeServerId);
@@ -1020,7 +1022,7 @@
   function renderRooms() {
     const signature = state.rooms.map((room) => `${room.id}:${room.name}:${room.description || ""}:${room.category || ""}:${room.kind || "text"}`).join("|") +
       "|" + state.servers.map((server) => `${server.id}:${server.name}:${server.role}`).join("|") +
-      `|${state.activeServerId}|${state.currentRoom}|` +
+      `|${state.activeServerId}|${state.currentRoom}|${state.hostAdmin}|` +
       Array.from(state.unread.entries()).map(([id, count]) => `${id}=${count}`).join(",");
     if (signature === state.roomSignature) return;
     state.roomSignature = signature;
@@ -1053,7 +1055,7 @@
         if (unread > 0 && room.id !== state.currentRoom) button.append(el("span", "unread", unread > 99 ? "99+" : String(unread)));
         button.addEventListener("click", () => selectRoom(room.id));
         channelFragment.append(button);
-        if (room.name !== "general" && ["owner", "admin"].includes(state.servers.find((server) => server.id === state.activeServerId)?.role)) {
+        if (room.name !== "general" && (state.hostAdmin || ["owner", "admin"].includes(state.servers.find((server) => server.id === state.activeServerId)?.role))) {
           const manage = el("button", "room-manage", "···");
           manage.type = "button"; manage.title = `Manage #${room.name}`;
           manage.addEventListener("click", (event) => { event.stopPropagation(); manageRoom(room); });
@@ -1954,17 +1956,25 @@
   async function manageRoom(room) {
     ui.roomError.textContent = "";
     state.editingRoomId = room.id;
+    const serverRole = state.servers.find((server) => server.id === room.server_id)?.role;
+    const canEditChannel = ["owner", "admin"].includes(serverRole);
+    const canManageAccess = state.hostAdmin || canEditChannel;
     ui.roomNameInput.value = room.name || "";
     ui.roomCategoryInput.value = room.category || "";
     ui.roomDescriptionInput.value = room.description || "";
     ui.roomPrivateInput.checked = room.kind === "private";
     ui.roomPrivateInput.disabled = true;
-    ui.roomDialogTitle.textContent = `Edit #${room.name}`;
+    ui.roomNameInput.disabled = !canEditChannel;
+    ui.roomCategoryInput.disabled = !canEditChannel;
+    ui.roomDescriptionInput.disabled = !canEditChannel;
+    ui.roomDialogTitle.textContent = canEditChannel ? `Edit #${room.name}` : `Manage access to #${room.name}`;
     ui.roomSubmitBtn.textContent = "Save changes";
-    ui.deleteRoomBtn.hidden = room.name.toLowerCase() === "general";
-    ui.addRoomMemberBtn.hidden = room.kind !== "private";
+    ui.roomSubmitBtn.hidden = !canEditChannel;
+    ui.deleteRoomBtn.hidden = !canEditChannel || room.name.toLowerCase() === "general";
+    ui.addRoomMemberBtn.hidden = room.kind !== "private" || !canManageAccess;
     ui.roomDialog.showModal();
-    setTimeout(() => ui.roomNameInput.focus(), 40);
+    if (canEditChannel) setTimeout(() => ui.roomNameInput.focus(), 40);
+    else setTimeout(() => ui.addRoomMemberBtn.focus(), 40);
   }
 
   async function deleteEditingRoom() {
