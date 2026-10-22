@@ -96,6 +96,8 @@ public class MainActivity extends Activity {
     private ProgressBar progress;
     private String serverUrl;
     private String pin;
+    private String pendingHostsJson = "[]";
+    private boolean forcePairOnNextLoad = false;
     private static final int MEDIA_PERMISSION_REQUEST = 4702;
     private PermissionRequest pendingMediaRequest;
     private String[] pendingMediaResources = new String[0];
@@ -394,7 +396,13 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         setContentView(root);
-        webView.loadUrl(serverUrl + "/app/");
+        String appUrl = serverUrl + "/app/";
+        if (forcePairOnNextLoad) {
+            appUrl += "?ts_hosts=" + Uri.encode(pendingHostsJson) + "&ts_force_pair=1";
+            pendingHostsJson = "[]";
+            forcePairOnNextLoad = false;
+        }
+        webView.loadUrl(appUrl);
     }
 
     @Override
@@ -451,6 +459,20 @@ public class MainActivity extends Activity {
                 NotificationManager manager = (NotificationManager)
                         getSystemService(NOTIFICATION_SERVICE);
                 if (manager != null) manager.notify((safeRoom.hashCode() & 0x7fffffff), builder.build());
+            });
+        }
+
+        @JavascriptInterface
+        public void switchHost(String url, String hostsJson) {
+            String target = url == null ? "" : url.trim();
+            if (!target.startsWith("https://")) return;
+            runOnUiThread(() -> {
+                pendingHostsJson = (hostsJson == null || hostsJson.trim().isEmpty()) ? "[]" : hostsJson;
+                forcePairOnNextLoad = true;
+                prefs.edit().putString(PREF_URL, target).remove(PREF_PIN).remove(PREF_NAME).apply();
+                serverUrl = "";
+                pin = "";
+                showSetup(null);
             });
         }
     }
