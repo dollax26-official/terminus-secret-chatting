@@ -366,6 +366,11 @@ public class MainActivity extends Activity {
 
     private final class NativeNotifications {
         @JavascriptInterface
+        public void saveHosts(String savedHostsJson) {
+            prefs.edit().putString(PREF_HOSTS, savedHostsJson == null ? "[]" : savedHostsJson).apply();
+        }
+
+        @JavascriptInterface
         public void switchHost(String rawUrl, String savedHostsJson) {
             String target = rawUrl == null ? "" : rawUrl.trim().replaceAll("/+$", "");
             Uri parsed = Uri.parse(target);
