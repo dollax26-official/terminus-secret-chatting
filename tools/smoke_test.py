@@ -284,7 +284,27 @@ def main():
         assert b"Terminus Secrets" in page
         assert "default-src 'self'" in headers.get("Content-Security-Policy", "")
 
-        print("PASS  host, pairing, auth, encryption, sync, at-rest, static UI")
+        # Restart the host against the same data directory; the pairing code must remain stable.
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+        process = subprocess.Popen(
+            [sys.executable, str(HOST), "--port", str(PORT), "--data-dir", str(DATA)],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        )
+        for _ in range(80):
+            try:
+                request("/api/health")
+                break
+            except Exception:
+                time.sleep(0.25)
+        else:
+            raise RuntimeError("host did not restart")
+        assert (DATA / "pairing-code.txt").read_text().strip() == code, "pairing code changed on restart"
+
+        print("PASS  host, stable pairing, unique usernames, encrypted DMs/call signaling, sync, at-rest, static UI")
         print(f"      devices={len(sync['devices'])} messages={len(sync['messages'])}")
     finally:
         process.terminate()
