@@ -40,6 +40,8 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Validate shared client JavaScript
         run: node --check server/web/app.js
+      - name: Validate Windows Electron JavaScript
+        run: node --check windows-app/electron/main.js
       - name: Build portable Windows app
         working-directory: windows-app/electron
         run: npm run build
@@ -154,3 +156,5 @@ jobs:
         run: node -e "const p=require('./package.json'); if(!p.main || !p.scripts || !p.scripts.start) process.exit(1); console.log(p.name, p.version)"
       - name: Validate shared web client JavaScript syntax
         run: node --check server/web/app.js
+      - name: Validate Windows Electron JavaScript syntax
+        run: node --check windows-app/electron/main.js
