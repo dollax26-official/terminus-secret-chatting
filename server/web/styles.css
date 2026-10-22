@@ -27,6 +27,29 @@
 
 * { box-sizing: border-box; }
 
+/*
+ * Explicitly keep app text selectable in desktop Chromium/Electron and Android
+ * WebView. Do not apply user-select:none to the whole application: users must
+ * be able to select/copy messages, usernames, server addresses, pairing codes,
+ * help text, and settings labels with mouse, keyboard, or long-press.
+ */
+html,
+body,
+body * {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
+/* Preserve normal editing and selection in every editable control. */
+input,
+textarea,
+select,
+[contenteditable="true"] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 html, body {
   height: 100%;
   margin: 0;
