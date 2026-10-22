@@ -1897,8 +1897,12 @@
       }
       localStorage.removeItem(LS.token);
       localStorage.removeItem(LS.device);
+      localStorage.removeItem(LS.accountToken);
+      localStorage.removeItem(LS.account);
       state.token = "";
       state.deviceId = "";
+      state.accountToken = "";
+      state.account = null;
     }
     if (encoded || params.has("tsReconnect")) history.replaceState(null, "", location.pathname);
   }
