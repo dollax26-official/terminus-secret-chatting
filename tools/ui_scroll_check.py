@@ -14,7 +14,9 @@ required_settings = (
     "self.canvas.configure(yscrollcommand=self.scrollbar.set)",
     "self.canvas.create_window((0, 0), window=outer, anchor=\"nw\")",
     "self.canvas.yview_scroll(units, \"units\")",
-    "self._bind_scroll_events(outer)",
+    "self.root.bind_all(sequence, self._on_mousewheel, add=\"+\")",
+    "self.root.after_idle(self._update_scroll_region)",
+    "yscrollincrement=24",
 )
 required_css = (
     ".rail {",
@@ -25,6 +27,8 @@ required_css = (
     ".messages > * {",
     "flex-shrink: 0;",
     "touch-action: pan-y;",
+    "Final scroll hardening",
+    "#chatView .rail::-webkit-scrollbar-thumb",
 )
 missing = [f"settings_app.py missing {token!r}" for token in required_settings if token not in settings]
 missing += [f"styles.css missing {token!r}" for token in required_css if token not in css]

@@ -341,6 +341,7 @@
     <footer class="dialog-foot room-dialog-actions">
       <div class="foot-left">
         <button type="button" id="addRoomMemberBtn" class="ghost-btn compact" hidden>Add member</button>
+        <button type="button" id="removeRoomMemberBtn" class="ghost-btn compact" hidden>Remove member</button>
         <button type="button" id="deleteRoomBtn" class="danger-btn" hidden>Delete channel</button>
       </div>
       <div class="foot-right">
@@ -409,10 +410,10 @@
 <dialog id="roomMemberDialog" class="dialog">
   <form id="roomMemberForm" class="dialog-inner" method="dialog">
     <header class="dialog-head">
-      <h3>Add private-channel member</h3>
+      <h3 id="roomMemberDialogTitle">Add private-channel member</h3>
       <button type="button" id="closeRoomMemberDialogBtn" class="icon-btn" aria-label="Close">×</button>
     </header>
-    <p class="muted">The person must already be a member of this server. Only invited members, server owners, and admins can access this private channel.</p>
+    <p id="roomMemberDialogDescription" class="muted">The person must already be a member of this server. Only invited members, server owners, and admins can access this private channel.</p>
     <label class="field">
       <span>Member username</span>
       <input id="roomMemberUsername" maxlength="24" autocomplete="off" placeholder="unique_username" required>

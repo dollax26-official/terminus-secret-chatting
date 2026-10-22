@@ -41,8 +41,15 @@ from urllib.parse import parse_qs, urlparse
 
 APP_NAME = "Terminus Secrets"
 APP_VERSION = "1.0.0"
-BASE_DIR = Path(__file__).resolve().parent
-WEB_DIR = BASE_DIR / "web"
+# In a PyInstaller build, serve bundled web assets from the extraction directory but
+# keep the database, TLS identity, and credentials beside the executable.
+if getattr(sys, "frozen", False):
+    BASE_DIR = Path(sys.executable).resolve().parent
+    RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", BASE_DIR))
+    WEB_DIR = RESOURCE_DIR / "web"
+else:
+    BASE_DIR = Path(__file__).resolve().parent
+    WEB_DIR = BASE_DIR / "web"
 DEFAULT_DATA_DIR = BASE_DIR / "data"
 
 MAX_BODY = 128 * 1024
@@ -267,7 +274,8 @@ def init_db(passphrase: str) -> None:
                 created_at TEXT NOT NULL,
                 last_seen TEXT,
                 revoked INTEGER NOT NULL DEFAULT 0,
-                account_id TEXT REFERENCES accounts(id)
+                account_id TEXT REFERENCES accounts(id),
+                master_authorized INTEGER NOT NULL DEFAULT 0
             );
             CREATE TABLE IF NOT EXISTS rooms (
                 id TEXT PRIMARY KEY,
@@ -336,6 +344,8 @@ def init_db(passphrase: str) -> None:
         device_columns = [row["name"] for row in conn.execute("PRAGMA table_info(devices)")]
         if "account_id" not in device_columns:
             conn.execute("ALTER TABLE devices ADD COLUMN account_id TEXT REFERENCES accounts(id)")
+        if "master_authorized" not in device_columns:
+            conn.execute("ALTER TABLE devices ADD COLUMN master_authorized INTEGER NOT NULL DEFAULT 0")
 
         room_columns = [row["name"] for row in conn.execute("PRAGMA table_info(rooms)")]
         if "server_id" not in room_columns:
@@ -696,11 +706,12 @@ class Handler(BaseHTTPRequestHandler):
                                    EXISTS (SELECT 1 FROM room_members rm WHERE rm.room_id=r.id AND rm.account_id=?)
                                    OR EXISTS (SELECT 1 FROM server_members sm WHERE sm.server_id=r.server_id
                                               AND sm.account_id=? AND sm.role IN ('owner','admin'))
+                                   OR ?=1
                                ))
                                ORDER BY r.created_at ASC""",
                             (device["account_id"], device["account_id"], server_id, server_id,
                              device["account_id"], server_id, server_id, server_id, server_id,
-                             device["account_id"], device["account_id"]),
+                             device["account_id"], device["account_id"], int(bool(device["master_authorized"]))),
                         ).fetchall()
                         servers = conn.execute(
                             """SELECT s.id, s.name, s.description, s.invite_code, sm.role
@@ -784,6 +795,7 @@ class Handler(BaseHTTPRequestHandler):
                                 for row in devices
                             ],
                             "you": device["id"],
+                            "host_admin": bool(device["master_authorized"]),
                             "last_id": max([after] + [row["id"] for row in rows]),
                             "has_more": bool(more),
                             "server_time": now_iso(),
@@ -1185,9 +1197,9 @@ class Handler(BaseHTTPRequestHandler):
         device_id = "dev_" + secrets.token_hex(6)
         with db() as conn:
             conn.execute(
-                "INSERT INTO devices(id, name, token_hash, created_at, last_seen, account_id) "
-                "VALUES(?,?,?,?,?,?)",
-                (device_id, name, sha256_hex(token), now_iso(), now_iso(), account_id),
+                "INSERT INTO devices(id, name, token_hash, created_at, last_seen, account_id, master_authorized) "
+                "VALUES(?,?,?,?,?,?,?)",
+                (device_id, name, sha256_hex(token), now_iso(), now_iso(), account_id, int(bool(master_key))),
             )
         self._send_json(
             200,
@@ -1521,8 +1533,9 @@ class Handler(BaseHTTPRequestHandler):
     def _add_private_room_member(self, device: sqlite3.Row, body: dict) -> None:
         room_id = str(body.get("room_id") or "").strip()
         username = str(body.get("username") or "").strip()
-        if not room_id or not username:
-            self._error(400, "room_id and username are required")
+        action = str(body.get("action") or "add").strip().lower()
+        if not room_id or not username or action not in ("add", "remove"):
+            self._error(400, "room_id, username, and action (add/remove) are required")
             return
         with db() as conn:
             room = conn.execute("SELECT server_id, kind FROM rooms WHERE id=?", (room_id,)).fetchone()
@@ -1533,26 +1546,33 @@ class Handler(BaseHTTPRequestHandler):
                 "SELECT role FROM server_members WHERE server_id=? AND account_id=?",
                 (room["server_id"], device["account_id"]),
             ).fetchone()
-            if actor is None or actor["role"] not in ("owner", "admin"):
-                self._error(403, "only server owners and admins can add private-channel members")
+            if not device["master_authorized"] and (actor is None or actor["role"] not in ("owner", "admin")):
+                self._error(403, "only server owners/admins or a master-key device can manage private-channel access")
                 return
             target = conn.execute("SELECT id FROM accounts WHERE username=? COLLATE NOCASE", (username,)).fetchone()
             if target is None:
                 self._error(404, "user not found")
                 return
-            if not conn.execute(
-                "SELECT 1 FROM server_members WHERE server_id=? AND account_id=?",
+            target_member = conn.execute(
+                "SELECT role FROM server_members WHERE server_id=? AND account_id=?",
                 (room["server_id"], target["id"]),
-            ).fetchone():
+            ).fetchone()
+            if target_member is None:
                 self._error(400, "that user must join this server first")
                 return
-            conn.execute(
-                "INSERT OR IGNORE INTO room_members(room_id,account_id,joined_at) VALUES(?,?,?)",
-                (room_id, target["id"], now_iso()),
-            )
+            if action == "remove":
+                if target_member["role"] in ("owner", "admin"):
+                    self._error(400, "server owners and admins always have private-channel access; change their server role first")
+                    return
+                conn.execute("DELETE FROM room_members WHERE room_id=? AND account_id=?", (room_id, target["id"]))
+            else:
+                conn.execute(
+                    "INSERT OR IGNORE INTO room_members(room_id,account_id,joined_at) VALUES(?,?,?)",
+                    (room_id, target["id"], now_iso()),
+                )
         with MESSAGE_COND:
             MESSAGE_COND.notify_all()
-        self._send_json(200, {"ok": True, "room_id": room_id, "username": username})
+        self._send_json(200, {"ok": True, "action": action, "room_id": room_id, "username": username})
 
     def _open_dm(self, device: sqlite3.Row, body: dict) -> None:
         raw_names = body.get("usernames")
@@ -1797,7 +1817,6 @@ def main() -> int:
         return 0
 
     ensure_master_key()
-    # Channel administration defaults to the host master key. An explicit
 
     cert_path = DATA_DIR / "cert.pem"
     key_path = DATA_DIR / "key.pem"

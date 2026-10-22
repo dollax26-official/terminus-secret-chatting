@@ -162,3 +162,38 @@ jobs:
         run: node --check server/web/app.js
       - name: Validate Windows Electron JavaScript syntax
         run: node --check windows-app/electron/main.js
+
+
+  host-manager-build:
+    name: Build standalone Windows host manager
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install host runtime and packager
+        run: python -m pip install -r server/requirements.txt pyinstaller
+      - name: Compile host and GUI manager
+        run: python -m py_compile server/host.py server/settings_app.py
+      - name: Package host executable with shared web assets
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm --clean --onefile --name TerminusSecretsHost --add-data "server/web;web" server/host.py
+      - name: Package graphical host manager
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm --clean --onefile --windowed --name TerminusSecretsHostManager server/settings_app.py
+          if (-not (Test-Path "dist/TerminusSecretsHost.exe")) { throw "Host executable is missing." }
+          if (-not (Test-Path "dist/TerminusSecretsHostManager.exe")) { throw "Host manager executable is missing." }
+          Get-FileHash "dist/TerminusSecretsHost.exe" -Algorithm SHA256
+          Get-FileHash "dist/TerminusSecretsHostManager.exe" -Algorithm SHA256
+      - name: Upload standalone host app
+        uses: actions/upload-artifact@v4
+        with:
+          name: TerminusSecrets-Host-Manager-Windows
+          path: |
+            dist/TerminusSecretsHostManager.exe
+            dist/TerminusSecretsHost.exe
+          if-no-files-found: error
+          retention-days: 14

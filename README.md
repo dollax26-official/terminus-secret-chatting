@@ -40,7 +40,7 @@ Terminus Secrets gives you a Windows desktop client and an Android client that t
 - Server accounts are required before device pairing: unique username + password, PBKDF2-HMAC-SHA256 password hashes, and revocable 30-day account sessions.
 - Create multiple servers, join using an invite code, and switch between servers.
 - Each server has owner/admin/member roles. Owners can promote/demote admins; owners and admins can create, rename, and delete channels.
-- Public text channels are visible to server members. Private channels are visible only to invited channel members; owners/admins can add existing server members.
+- Public text channels are visible to server members. Private channels are visible to invited members; owners/admins can manage their membership, and a device paired with the host master key can also grant or revoke access for existing server members. Owners/admins retain access.
 - One-to-one and group direct messages are supported. The host checks conversation membership on message sync, sending, editing, deleting, reacting, and pinning.
 - Reply to messages, add/remove emoji reactions, pin/unpin messages, and edit/delete messages you authored.
 - Search the currently loaded local message history, see unread counts and typing indicators, and use browser/native notifications. Mentions are highlighted and can trigger notifications.
@@ -81,7 +81,9 @@ The host stores `nonce`, `ciphertext`, `room_id`, `device_id`, and a timestamp. 
 
 Requirements: Python 3.11+.
 
-For the graphical host manager (recommended on Windows):
+**Standalone Windows host app (no CMD window):** download the `TerminusSecrets-Host-Manager-Windows` artifact from the latest successful [GitHub Actions build](https://github.com/dollax26-official/terminus-secret-chatting/actions). Extract both `TerminusSecretsHostManager.exe` and `TerminusSecretsHost.exe` into the same folder, then double-click **TerminusSecretsHostManager.exe**. Keep both files together; the manager launches the host executable when you press **Start server**.
+
+**Run the graphical manager from source:**
 
 ```powershell
 cd server
@@ -89,7 +91,7 @@ python -m pip install -r requirements.txt
 python settings_app.py
 ```
 
-Choose whether photos, voice notes, voice calls, video calls, and screen sharing should be shown in the shared clients. The manager saves settings in `server/data/server-settings.json`, estimates RAM use, and starts/stops the host with the **Start server** button. The estimate is a planning guide, not a benchmark; actual client-side media memory varies by device and call conditions.
+Choose whether photos, voice notes, voice calls, video calls, and screen sharing should be shown in the shared clients. The manager saves settings in its persistent `data` folder, estimates RAM use, and starts/stops the host with the **Start server** button. The estimate is a planning guide, not a benchmark; actual client-side media memory varies by device and call conditions. The packaged app keeps the database, certificate, vault phrase, pairing code, and settings beside the executable so they survive restarts and network changes.
 
 To run without the graphical manager:
 
@@ -203,7 +205,7 @@ For a Windows-first walkthrough covering host setup, IPv4/IPv6 reachability, HTT
 
 ### Server roles and channel privacy
 
-Each server has an owner, admins, and members. Only the owner can promote or demote admins; owners and admins can create, rename, or delete channels. Private channels are visible only to accounts explicitly added to that channel; owners/admins can add existing server members. Direct-message and private-channel membership is enforced by the host API, not only by the interface.
+Each server has an owner, admins, and members. Only the owner can promote or demote admins; owners and admins can create, rename, or delete channels. Private channels are visible to explicitly invited accounts and server owners/admins. Owners/admins can grant or revoke access for existing server members; a device paired with the host master key can also grant or revoke private-channel membership without becoming a server owner. Direct-message and private-channel membership is enforced by the host API, not only by the interface.
 
 ## Remote access from another network
 
