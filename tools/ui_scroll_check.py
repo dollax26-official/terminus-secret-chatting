@@ -23,7 +23,7 @@ required_css = (
     "overflow-y: auto;",
     "-webkit-overflow-scrolling: touch;",
     ".messages > * {",
-    "flex-shrink: 0;",
+    "flex: 0 0 auto;",
     "touch-action: pan-y;",
 )
 missing = [f"settings_app.py missing {token!r}" for token in required_settings if token not in settings]
