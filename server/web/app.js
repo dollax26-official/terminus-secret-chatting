@@ -402,6 +402,14 @@
       ui.accountError.textContent = "Enter both your username and password.";
       return;
     }
+    if (!/^[\\p{L}\\p{N}_-]{3,24}$/u.test(username)) {
+      ui.accountError.textContent = "Username must be 3–24 characters using letters, numbers, _ or -.";
+      return;
+    }
+    if (password.length < 10 || password.length > 256) {
+      ui.accountError.textContent = "Password must be between 10 and 256 characters.";
+      return;
+    }
     ui.accountBtn.disabled = true;
     try {
       const endpoint = state.accountMode === "register" ? "/api/accounts/register" : "/api/accounts/login";
@@ -473,6 +481,7 @@
     $("#closeRoleDialogBtnBottom").addEventListener("click", () => ui.roleDialog.close());
     $("#closeRoomMemberDialogBtn").addEventListener("click", () => ui.roomMemberDialog.close());
     $("#cancelRoomMemberDialogBtn").addEventListener("click", () => ui.roomMemberDialog.close());
+    ui.accountTitle = $("#accountTitle");
     ui.accountForm = $("#accountForm");
     ui.accountPanel = $("#accountPanel");
     ui.accountError = $("#accountError");
@@ -2526,7 +2535,6 @@
     if (ui.accountDisplayName) ui.accountDisplayName.closest(".field").hidden = true;
     await loadServerFeatures();
     ui.deviceInput.value = state.deviceName;
-    ui.accountTitle = $("#accountTitle");
     ui.accountPanel.hidden = Boolean(state.accountToken);
     ui.connectForm.hidden = !state.accountToken;
     if (state.account) {
