@@ -28,21 +28,26 @@ DEFAULTS = {
     "video_calls": True,
     "screen_sharing": True,
 }
-COST_MB = {
+# Planning assumptions for a host plus native/browser clients. These are not measured values.
+BASE_HOST_MB = 220
+CLIENT_MB = 180
+MEDIA_SESSION_MB = {
     "photos": 18,
-    "voice_messages": 24,
-    "voice_calls": 65,
-    "video_calls": 150,
-    "screen_sharing": 95,
+    "voice_messages": 30,
+    "voice_calls": 90,
+    "video_calls": 240,
+    "screen_sharing": 140,
 }
+RAM_BUDGET_MB = 5 * 1024
+RAM_CAUTION_MB = 4 * 1024
 
 
 class HostSettingsApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("Terminus Secrets · Host Manager")
-        self.root.geometry("720x680")
-        self.root.minsize(600, 600)
+        self.root.geometry("740x760")
+        self.root.minsize(620, 680)
         self.root.configure(bg="#080d13")
         self.process: subprocess.Popen | None = None
         self.log_handle = None
@@ -50,6 +55,8 @@ class HostSettingsApp:
 
         self.port = tk.StringVar(value="8443")
         self.public_url = tk.StringVar(value="")
+        self.expected_clients = tk.IntVar(value=2)
+        self.concurrent_media = tk.IntVar(value=1)
         self.status = tk.StringVar(value="Ready to configure")
         self.credentials = tk.StringVar(value="Not started yet — start the server to load its saved credentials.")
         self.vault_phrase = ""
@@ -91,6 +98,8 @@ class HostSettingsApp:
                     self.vars[key].set(bool(saved.get("features", {}).get(key, True)))
                 self.port.set(str(saved.get("port", 8443)))
                 self.public_url.set(str(saved.get("public_url", "")))
+                self.expected_clients.set(max(1, min(32, int(saved.get("expected_clients", 2)))))
+                self.concurrent_media.set(max(0, min(12, int(saved.get("concurrent_media", 1)))))
         except (OSError, json.JSONDecodeError, AttributeError, TypeError):
             messagebox.showwarning("Settings reset", "The saved settings could not be read. Defaults will be used.")
 
@@ -135,11 +144,22 @@ class HostSettingsApp:
         estimate.pack(fill="x", pady=(0, 12))
         header = ttk.Frame(estimate, style="Panel.TFrame")
         header.pack(fill="x")
-        ttk.Label(header, text="ESTIMATED RAM · HOST + ONE ACTIVE CLIENT").pack(side="left")
-        self.ram_text = ttk.Label(header, text="~350 MB", style="TLabel")
+        ttk.Label(header, text="PROJECTED RAM · HOST + CLIENTS + ACTIVE MEDIA").pack(side="left")
+        self.ram_text = ttk.Label(header, text="Calculating…", style="TLabel")
         self.ram_text.pack(side="right")
-        self.ram_bar = ttk.Progressbar(estimate, maximum=1024, mode="determinate")
+        capacity = ttk.Frame(estimate, style="Panel.TFrame")
+        capacity.pack(fill="x", pady=(10, 2))
+        ttk.Label(capacity, text="Connected clients").pack(side="left")
+        self.clients_spin = ttk.Spinbox(capacity, from_=1, to=32, width=5, textvariable=self.expected_clients, command=self._update_estimate)
+        self.clients_spin.pack(side="left", padx=(8, 18))
+        ttk.Label(capacity, text="Concurrent media sessions").pack(side="left")
+        self.media_spin = ttk.Spinbox(capacity, from_=0, to=12, width=5, textvariable=self.concurrent_media, command=self._update_estimate)
+        self.media_spin.pack(side="left", padx=(8, 0))
+        self.expected_clients.trace_add("write", lambda *_: self._update_estimate())
+        self.concurrent_media.trace_add("write", lambda *_: self._update_estimate())
+        self.ram_bar = ttk.Progressbar(estimate, maximum=RAM_BUDGET_MB, mode="determinate")
         self.ram_bar.pack(fill="x", pady=(10, 7))
+        ttk.Label(estimate, text="Scale: 0–5 GB available budget · orange warning above 4 GB", style="Muted.TLabel").pack(anchor="w")
         self.ram_note = ttk.Label(estimate, text="", style="Muted.TLabel", wraplength=620)
         self.ram_note.pack(anchor="w")
 
@@ -153,17 +173,33 @@ class HostSettingsApp:
         ttk.Label(outer, text=f"Settings: {CONFIG}", style="Muted.TLabel", wraplength=650).pack(anchor="w", pady=(14, 0))
 
     def _estimate_mb(self) -> int:
-        # Planning estimate, not a measurement: Python/SQLite host baseline,
-        # one browser/Electron/WebView client, plus enabled media/attachment paths.
-        return 240 + sum(COST_MB[key] for key, var in self.vars.items() if var.get())
+        # Estimate scales with configured clients and concurrent active media.
+        # Enabling a capability does not consume its full allowance while idle.
+        try:
+            clients = max(1, min(32, int(self.expected_clients.get())))
+        except (tk.TclError, ValueError):
+            clients = 2
+        try:
+            sessions = max(0, min(12, int(self.concurrent_media.get())))
+        except (tk.TclError, ValueError):
+            sessions = 1
+        per_session = sum(MEDIA_SESSION_MB[key] for key, var in self.vars.items() if var.get())
+        return BASE_HOST_MB + clients * CLIENT_MB + sessions * per_session
 
     def _update_estimate(self) -> None:
+        if not hasattr(self, "ram_text"):
+            return
         mb = self._estimate_mb()
-        self.ram_text.configure(text=f"~{mb} MB  ({mb / 1024:.2f} GB)")
-        self.ram_bar.configure(value=min(mb, 1024))
-        self.ram_note.configure(
-            text="Approximate planning range only, not a live measurement. The host relays encrypted chat and call signaling; WebRTC media is peer-to-peer when networks permit it. Actual memory depends on the number of clients, browser/WebView, photos, and active media."
-        )
+        self.ram_text.configure(text=f"~{mb} MB ({mb / 1024:.2f} GB) / 5 GB budget")
+        self.ram_bar.configure(value=min(mb, RAM_BUDGET_MB))
+        if mb > RAM_CAUTION_MB:
+            note = ("WARNING: this planning estimate exceeds 4 GB. Reduce expected clients or concurrent media sessions. "
+                    "This is a planning model, not a hard memory cap or live measurement.")
+        else:
+            note = ("Planning estimate only — not a live measurement or a hard RAM limit. Assumes about 180 MB per connected "
+                    "client plus a host baseline and the enabled capabilities for each concurrent media session. Real usage "
+                    "depends on browser/WebView processes, media resolution, OS overhead, and other running apps.")
+        self.ram_note.configure(text=note)
 
     def _save(self) -> None:
         try:
@@ -175,10 +211,17 @@ class HostSettingsApp:
         public_url = self.public_url.get().strip().rstrip("/")
         if public_url and not public_url.startswith("https://"):
             raise ValueError("Public URL must start with https://.")
+        try:
+            expected_clients = max(1, min(32, int(self.expected_clients.get())))
+            concurrent_media = max(0, min(12, int(self.concurrent_media.get())))
+        except (ValueError, tk.TclError) as exc:
+            raise ValueError("Connected clients must be 1–32 and media sessions 0–12.") from exc
         payload = {
             "port": port,
             "public_url": public_url,
             "features": {key: bool(var.get()) for key, var in self.vars.items()},
+            "expected_clients": expected_clients,
+            "concurrent_media": concurrent_media,
         }
         DATA.mkdir(parents=True, exist_ok=True)
         temp = CONFIG.with_suffix(".tmp")

@@ -21,3 +21,12 @@ Before changing the shared web client, consult [UI Guides & Agent Rules](https:/
 - Run `node --check server/web/app.js` and `node --check windows-app/electron/main.js`.
 - Build the Windows EXE and Android APK through CI; report platform limitations separately from source-level checks.
 - Do not claim a feature is production-ready based only on syntax checks or successful packaging.
+
+
+## UI regression checklist (applies to shared web UI on Windows and Android)
+- Before editing the shared client, search the UI Guides & Agent Rules index for applicable surfaces (form-input, button-action, dialog-overlay, focus-keyboard, responsive-layout, media, feedback-status, perf-loading) and fetch only the matching rule pages: https://ui-guides-agent-rules.netlify.app/principles/index.md
+- MUST prefer labeled in-app dialogs with inline recoverable errors for create/join server, new DM, add-host, invite, and certificate-trust flows; avoid native prompt and alert dialogs because they break the app's visual and mobile flow.
+- MUST preserve focus visibility, semantic buttons, explicit form submit, and keyboard Escape behavior. Keep touch targets usable at 360 px Android WebView width.
+- MUST never claim WebRTC media works when platform permissions or APIs are unavailable. Stop every local/share media track when a call ends.
+- MUST label RAM values as estimates unless they come from a live process measurement; feature toggles are not a hard memory cap.
+- SHOULD validate the shared UI at narrow and desktop widths before calling a round complete.

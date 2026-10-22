@@ -425,6 +425,22 @@
   </form>
 </dialog>
 
+<dialog id="actionDialog" class="dialog action-dialog">
+  <form id="actionForm" class="dialog-inner" novalidate>
+    <header class="dialog-head">
+      <h3 id="actionTitle">Server action</h3>
+      <button type="button" id="closeActionDialogBtn" class="icon-btn" aria-label="Close">×</button>
+    </header>
+    <p id="actionDescription" class="muted"></p>
+    <div id="actionFields" class="action-fields"></div>
+    <p id="actionError" class="form-error" role="alert"></p>
+    <footer class="dialog-foot">
+      <button type="button" id="cancelActionBtn" class="ghost-btn">Cancel</button>
+      <button type="submit" id="actionSubmitBtn" class="primary small">Continue</button>
+    </footer>
+  </form>
+</dialog>
+
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 <noscript><p class="noscript">Terminus Secrets needs JavaScript for end-to-end encryption.</p></noscript>
 

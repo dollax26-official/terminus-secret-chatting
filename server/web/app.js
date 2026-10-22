@@ -66,6 +66,8 @@
     voiceChunks: [],
     voiceStopTimer: null,
     savedHosts: [],
+    actionMode: "",
+    actionHost: null,
     features: { photos: true, voice_messages: true, voice_calls: true, video_calls: true, screen_sharing: true },
   };
 
@@ -367,6 +369,13 @@
     ui.roomDescriptionInput = $("#roomDescriptionInput");
     ui.roomPrivateInput = $("#roomPrivateInput");
     ui.roomError = $("#roomError");
+    ui.actionDialog = $("#actionDialog");
+    ui.actionForm = $("#actionForm");
+    ui.actionTitle = $("#actionTitle");
+    ui.actionDescription = $("#actionDescription");
+    ui.actionFields = $("#actionFields");
+    ui.actionError = $("#actionError");
+    ui.actionSubmitBtn = $("#actionSubmitBtn");
     ui.toast = $("#toast");
     ui.rail = $("#rail");
     ui.backdrop = $("#backdrop");
@@ -442,6 +451,9 @@
   }
 
   function bindEvents() {
+    ui.actionForm.addEventListener("submit", submitActionDialog);
+    $("#closeActionDialogBtn").addEventListener("click", () => ui.actionDialog.close());
+    $("#cancelActionBtn").addEventListener("click", () => ui.actionDialog.close());
     ui.roleDialog = $("#roleDialog");
     ui.roleForm = $("#roleForm");
     ui.roleMemberList = $("#roleMemberList");
@@ -1581,44 +1593,164 @@
     await applySync(await res.json(), { quiet: true });
   }
 
-  async function createServer() {
-    const name = window.prompt("New server name:");
-    if (name === null || !name.trim()) return;
-    const description = window.prompt("Server description (optional):", "") || "";
-    try {
-      const res = await api("/api/servers/create", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.trim(), description }) });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Could not create server.");
-      state.activeServerId = data.id;
-      localStorage.setItem("ts.server", data.id);
-      await refreshSync();
-      const channel = state.rooms.find((room) => room.server_id === data.id && room.kind !== "dm");
-      if (channel) selectRoom(channel.id); else renderRooms();
-      toast(`Created ${data.name}. Invite code: ${data.invite_code}`);
-      window.alert(`Server created: ${data.name}\\nInvite code (share only with people you want to join):\\n${data.invite_code}`);
-    } catch (err) { toast(err.message || "Could not create server.", "error"); }
+  function makeActionField(spec) {
+    const label = el("label", "field");
+    label.append(el("span", "", spec.label));
+    const input = el("input");
+    input.name = spec.name;
+    input.dataset.actionField = spec.name;
+    input.placeholder = spec.placeholder || "";
+    input.autocomplete = spec.autocomplete || "off";
+    input.maxLength = spec.maxLength || 160;
+    input.required = Boolean(spec.required);
+    input.readOnly = Boolean(spec.readOnly);
+    input.value = spec.value || "";
+    if (spec.inputMode) input.inputMode = spec.inputMode;
+    label.append(input);
+    ui.actionFields.append(label);
+    return input;
   }
 
-  async function joinServer() {
-    const invite_code = window.prompt("Paste the server invite code:");
-    if (invite_code === null || !invite_code.trim()) return;
-    try {
-      const res = await api("/api/servers/join", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ invite_code: invite_code.trim() }) });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Could not join server.");
-      state.activeServerId = data.id;
-      localStorage.setItem("ts.server", data.id);
-      await refreshSync();
-      const channel = state.rooms.find((room) => room.server_id === data.id && room.kind !== "dm");
-      if (channel) selectRoom(channel.id);
-      toast(`Joined ${data.name}.`);
-    } catch (err) { toast(err.message || "Could not join server.", "error"); }
+  function openActionDialog(mode, options = {}) {
+    const configs = {
+      "create-server": { title: "Create a server", description: "Start a new community on this host. You can invite people after it is created.", submit: "Create server", fields: [
+        { name: "name", label: "Server name", placeholder: "My community", required: true, maxLength: 48 },
+        { name: "description", label: "Description (optional)", placeholder: "What is this server for?", maxLength: 160 },
+      ] },
+      "join-server": { title: "Join a server", description: "Paste an invite code from a server member.", submit: "Join server", fields: [
+        { name: "invite_code", label: "Invite code", placeholder: "Paste invite code", required: true, maxLength: 96 },
+      ] },
+      "direct-message": { title: "New direct message", description: "Enter unique usernames. Separate multiple usernames with commas to start a group DM.", submit: "Open conversation", fields: [
+        { name: "usernames", label: "Username(s)", placeholder: "alex or alex, sam", required: true, maxLength: 240 },
+      ] },
+      "add-host": { title: "Add a host", description: "Save the host address for quick access later. Reconnecting still requires sign-in, pairing code, and vault phrase.", submit: "Save host", fields: [
+        { name: "url", label: "Host IPv6 address or HTTPS URL", placeholder: "https://[2001:db8::1]:8443", required: true, maxLength: 300 },
+      ] },
+      fingerprint: { title: "Verify host certificate", description: "Compare this SHA-256 fingerprint with the one shown by the host on its own screen before trusting it.", submit: "Trust certificate", fields: [
+        { name: "fingerprint", label: "SHA-256 certificate fingerprint", placeholder: "Paste fingerprint from host", required: true, maxLength: 160 },
+      ] },
+      invite: { title: "Server invite", description: "Share this code only with people you want to join this server.", submit: "Done", fields: [
+        { name: "invite_code", label: "Invite code", value: options.inviteCode || "", readOnly: true, maxLength: 96 },
+      ] },
+    };
+    const config = configs[mode];
+    if (!config) return;
+    state.actionMode = mode;
+    state.actionHost = options.host || null;
+    ui.actionTitle.textContent = config.title;
+    ui.actionDescription.textContent = config.description;
+    ui.actionError.textContent = "";
+    ui.actionFields.replaceChildren();
+    for (const spec of config.fields) makeActionField(spec);
+    if (mode === "invite") {
+      const copy = el("button", "ghost-btn compact action-copy-btn", "Copy invite code");
+      copy.type = "button";
+      copy.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(String(options.inviteCode || ""));
+          toast("Invite code copied.");
+        } catch (_) {
+          const input = ui.actionFields.querySelector('[data-action-field="invite_code"]');
+          input?.focus(); input?.select();
+          toast("Select and copy the invite code manually.");
+        }
+      });
+      ui.actionFields.append(copy);
+    }
+    ui.actionSubmitBtn.textContent = config.submit;
+    ui.actionSubmitBtn.disabled = false;
+    ui.actionDialog.showModal();
+    const first = ui.actionFields.querySelector("input:not([readonly])") || ui.actionFields.querySelector("input");
+    setTimeout(() => first?.focus(), 40);
   }
+
+  async function submitActionDialog(event) {
+    event.preventDefault();
+    const mode = state.actionMode;
+    const value = (name) => ui.actionFields.querySelector('[data-action-field="' + name + '"]')?.value.trim() || "";
+    if (mode === "invite") { ui.actionDialog.close(); return; }
+    ui.actionError.textContent = "";
+    ui.actionSubmitBtn.disabled = true;
+    ui.actionSubmitBtn.textContent = "Working…";
+    try {
+      if (mode === "create-server") {
+        const name = value("name");
+        if (!name) throw new Error("Give the server a name.");
+        const res = await api("/api/servers/create", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, description: value("description") }) });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Could not create server.");
+        state.activeServerId = data.id;
+        localStorage.setItem("ts.server", data.id);
+        await refreshSync();
+        const channel = state.rooms.find((room) => room.server_id === data.id && room.kind !== "dm");
+        if (channel) selectRoom(channel.id); else renderRooms();
+        ui.actionDialog.close();
+        toast("Created " + data.name + ".");
+        openActionDialog("invite", { inviteCode: data.invite_code });
+      } else if (mode === "join-server") {
+        const invite_code = value("invite_code");
+        if (!invite_code) throw new Error("Paste the invite code.");
+        const res = await api("/api/servers/join", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ invite_code }) });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Could not join server.");
+        state.activeServerId = data.id;
+        localStorage.setItem("ts.server", data.id);
+        await refreshSync();
+        const channel = state.rooms.find((room) => room.server_id === data.id && room.kind !== "dm");
+        if (channel) selectRoom(channel.id); else renderRooms();
+        ui.actionDialog.close();
+        toast("Joined " + data.name + ".");
+      } else if (mode === "direct-message") {
+        const usernames = value("usernames");
+        if (!usernames) throw new Error("Enter at least one username.");
+        const res = await api("/api/dm/open", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: usernames }) });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Could not open direct message.");
+        if (!state.rooms.some((room) => room.id === data.id)) state.rooms.push(data);
+        ui.actionDialog.close();
+        selectRoom(data.id);
+        toast("Direct message with " + data.name + " opened.");
+      } else if (mode === "add-host") {
+        const host = normalizeHostAddress(value("url"));
+        const list = readSavedHosts().filter((item) => item.url !== host.url);
+        list.unshift(host);
+        const saved = list.slice(0, 20);
+        localStorage.setItem("ts.saved-hosts", JSON.stringify(saved));
+        if (window.TerminusNative && typeof window.TerminusNative.saveHosts === "function") window.TerminusNative.saveHosts(JSON.stringify(saved));
+        state.savedHosts = saved;
+        renderSavedHosts();
+        ui.actionDialog.close();
+        toast("Host saved. Sign-in, pairing code, and vault phrase are required when reconnecting.");
+      } else if (mode === "fingerprint") {
+        const host = state.actionHost;
+        if (!host) throw new Error("The selected host is missing.");
+        const fingerprint = value("fingerprint");
+        if (!fingerprint) throw new Error("Enter the certificate fingerprint.");
+        const res = await fetch("/__trust", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: host.url, fingerprint }) });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) throw new Error(data.error || "Host fingerprint was not accepted.");
+        const query = "?tsSavedHosts=" + encodeURIComponent(JSON.stringify(readSavedHosts())) + "&tsReconnect=1";
+        ui.actionDialog.close();
+        location.href = "/app/" + query;
+      }
+    } catch (err) {
+      ui.actionError.textContent = err.message || "That action could not be completed.";
+    } finally {
+      if (ui.actionDialog.open) {
+        ui.actionSubmitBtn.disabled = false;
+        const labels = { "create-server": "Create server", "join-server": "Join server", "direct-message": "Open conversation", "add-host": "Save host", fingerprint: "Trust certificate", invite: "Done" };
+        ui.actionSubmitBtn.textContent = labels[state.actionMode] || "Continue";
+      }
+    }
+  }
+
+  async function createServer() { openActionDialog("create-server"); }
+  async function joinServer() { openActionDialog("join-server"); }
 
   function showServerInvite() {
     const server = state.servers.find((item) => item.id === state.activeServerId);
     if (!server) { toast("Create or join a server first.", "error"); return; }
-    window.alert(`${server.name}\\nInvite code: ${server.invite_code || "Unavailable"}\\nShare this code only with people you want to join.`);
+    openActionDialog("invite", { inviteCode: server.invite_code || "" });
   }
 
   async function manageServer() {
@@ -1748,18 +1880,7 @@
     }
   }
 
-  async function openDirectMessage() {
-    const username = window.prompt("Username(s) to message — separate multiple usernames with commas for a group DM:");
-    if (username === null || !username.trim()) return;
-    try {
-      const res = await api("/api/dm/open", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: username.trim() }) });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Could not open direct message.");
-      if (!state.rooms.some((room) => room.id === data.id)) state.rooms.push(data);
-      selectRoom(data.id);
-      toast(`Direct message with ${data.name} opened.`);
-    } catch (err) { toast(err.message || "Could not open direct message.", "error"); }
-  }
+  async function openDirectMessage() { openActionDialog("direct-message"); }
 
   async function sendAttachment() {
     const file = ui.fileInput.files && ui.fileInput.files[0];
@@ -2025,25 +2146,9 @@
     return { url: parsed.origin.replace(/\/$/, ""), name: parsed.hostname.replace(/^\[|\]$/g, "") };
   }
 
-  function addSavedHost() {
-    const raw = window.prompt("Host IPv6 address or HTTPS URL (example: https://[2001:db8::1]:8443):");
-    if (raw === null) return;
-    try {
-      const host = normalizeHostAddress(raw);
-      const list = readSavedHosts().filter((item) => item.url !== host.url);
-      list.unshift(host);
-      localStorage.setItem("ts.saved-hosts", JSON.stringify(list.slice(0, 20)));
-      if (window.TerminusNative && typeof window.TerminusNative.saveHosts === "function") {
-        window.TerminusNative.saveHosts(JSON.stringify(list.slice(0, 20)));
-      }
-      state.savedHosts = list.slice(0, 20);
-      renderSavedHosts();
-      toast("Saved host address. Reconnecting will require your account, pairing code, and vault phrase.");
-    } catch (err) { toast(err.message || "Could not save host.", "error"); }
-  }
+  function addSavedHost() { openActionDialog("add-host"); }
 
   function reconnectSavedHost(host) {
-    if (!window.confirm("Reconnect to " + host.url + "? You will need to sign in and enter that host’s pairing code and vault phrase. Credentials are not saved.")) return;
     const hostsJson = JSON.stringify(readSavedHosts());
     const query = "?tsSavedHosts=" + encodeURIComponent(hostsJson) + "&tsReconnect=1";
     if (window.TerminusNative && typeof window.TerminusNative.switchHost === "function") {
@@ -2051,11 +2156,7 @@
       return;
     }
     if (location.hostname === "127.0.0.1" && location.port === "8756") {
-      const fingerprint = window.prompt("Enter the SHA-256 certificate fingerprint printed by the host console:");
-      if (!fingerprint) return;
-      fetch("/__trust", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: host.url, fingerprint }) })
-        .then(async (res) => { const data = await res.json().catch(() => ({})); if (!data.ok) throw new Error(data.error || "Host fingerprint was not accepted."); location.href = "/app/" + query; })
-        .catch((err) => toast(err.message || "Could not switch host.", "error"));
+      openActionDialog("fingerprint", { host });
       return;
     }
     location.href = host.url + "/app/" + query;

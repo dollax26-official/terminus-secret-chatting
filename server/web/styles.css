@@ -1059,3 +1059,20 @@ button:disabled { cursor: not-allowed; opacity: .48; }
   .room-dialog-actions .foot-right { margin-left: 0; }
   .room-dialog-actions .foot-right button { flex: 1; }
 }
+
+
+/* Action dialogs: consistent, keyboard-first alternatives to native prompt/alert UI. */
+.action-dialog .dialog-inner { display:flex; flex-direction:column; gap:10px; }
+.action-dialog .dialog-head { margin-bottom:2px; }
+.action-dialog #actionDescription { margin:0 0 4px; line-height:1.6; }
+.action-fields { display:grid; gap:4px; min-width:0; }
+.action-fields .field { margin:0 0 8px; }
+.action-fields input { min-width:0; }
+.action-copy-btn { justify-self:start; min-height:40px; margin:0 0 8px; }
+.action-dialog .dialog-foot { margin-top:0; }
+.action-dialog button:disabled { opacity:.65; cursor:progress; }
+@media (max-width:460px) {
+  .action-dialog { width:calc(100vw - 20px); max-height:min(90dvh, 760px); }
+  .action-dialog .dialog-inner { padding:17px 16px 15px; }
+  .action-dialog .dialog-foot > button { min-height:42px; }
+}
