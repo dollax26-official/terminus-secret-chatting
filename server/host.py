@@ -1195,9 +1195,9 @@ class Handler(BaseHTTPRequestHandler):
         device_id = "dev_" + secrets.token_hex(6)
         with db() as conn:
             conn.execute(
-                "INSERT INTO devices(id, name, token_hash, created_at, last_seen, account_id) "
-                "VALUES(?,?,?,?,?,?)",
-                (device_id, name, sha256_hex(token), now_iso(), now_iso(), account_id),
+                "INSERT INTO devices(id, name, token_hash, created_at, last_seen, account_id, master_authorized) "
+                "VALUES(?,?,?,?,?,?,?)",
+                (device_id, name, sha256_hex(token), now_iso(), now_iso(), account_id, int(bool(master_key))),
             )
         self._send_json(
             200,
