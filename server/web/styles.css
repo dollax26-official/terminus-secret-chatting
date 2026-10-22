@@ -922,3 +922,14 @@ button:focus:not(:focus-visible) { outline: none; }
 .account-panel .field-hint { margin: 0 0 16px; }
 .account-panel > .linkish { margin-top: 12px; }
 #connectForm[hidden], #accountPanel[hidden] { display: none !important; }
+
+
+/* Message actions: replies, reactions, editing, pins */
+.message-actions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; opacity: .72; }
+.message-action { border: 1px solid var(--line); background: var(--panel); color: var(--muted); border-radius: 7px; padding: 3px 7px; font-size: 11px; cursor: pointer; }
+.message-action:hover { color: var(--text); border-color: var(--accent-line); background: var(--accent-soft); }
+.reaction-bar { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.reaction-chip { border: 1px solid var(--accent-line); background: var(--accent-soft); color: var(--text); border-radius: 999px; padding: 3px 8px; font-size: 12px; }
+.reply-reference { margin-bottom: 6px; padding-left: 9px; border-left: 2px solid var(--accent); color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.deleted-bubble { color: var(--muted) !important; font-style: italic; }
+.msg:has(.message-action[title="Unpin message"]) .bubble::after { content: "  📌"; font-size: 11px; }
