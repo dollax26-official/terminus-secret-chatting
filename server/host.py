@@ -648,7 +648,7 @@ class Handler(BaseHTTPRequestHandler):
                         SELECT m.id, m.room_id, m.device_id, m.client_msg_id,
                                m.nonce, m.ciphertext, m.created_at, m.edited_at,
                                m.deleted_at, m.pinned, m.reply_to_id,
-                               COALESCE(a.username, d.name) AS device_name,
+                               COALESCE(NULLIF(a.display_name, ''), a.username, d.name) AS device_name,
                                COALESCE((SELECT json_group_array(json_object('emoji', r.emoji, 'count', r.n))
                                          FROM (SELECT emoji, COUNT(*) AS n FROM reactions
                                                WHERE message_id=m.id GROUP BY emoji) r), '[]') AS reactions_json
@@ -729,9 +729,13 @@ class Handler(BaseHTTPRequestHandler):
                                 continue
                             if typing_account == device["account_id"] or typing_room not in accessible_room_ids:
                                 continue
-                            typing_user = conn.execute("SELECT username FROM accounts WHERE id=?", (typing_account,)).fetchone()
+                            typing_user = conn.execute("SELECT username, display_name FROM accounts WHERE id=?", (typing_account,)).fetchone()
                             if typing_user:
-                                typing_rows.append({"room_id": typing_room, "username": typing_user["username"]})
+                                typing_rows.append({
+                                    "room_id": typing_room,
+                                    "username": typing_user["username"],
+                                    "display_name": typing_user["display_name"] or typing_user["username"],
+                                })
                         more = conn.execute(
                             "SELECT 1 FROM messages WHERE id > ? LIMIT 1",
                             (rows[-1]["id"] if rows else after,),

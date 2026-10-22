@@ -163,7 +163,7 @@ def main():
         assert sync["rooms"][0]["id"] == "general"
         assert len(sync["messages"]) == 1
         row = sync["messages"][0]
-        assert row["device_name"] == "smoke_tester"
+        assert row["device_name"] == "Smoke Display"
         assert decrypt(key, "general", row["nonce"], row["ciphertext"]) == secret_text
 
         # A second sync after the last id must be empty.

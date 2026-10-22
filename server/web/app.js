@@ -814,7 +814,7 @@
       if (state.activeServerId) localStorage.setItem("ts.server", state.activeServerId);
     }
     state.devices = data.devices || state.devices;
-    const typingNames = Array.from(new Set((data.typing || []).filter((item) => item.room_id === state.currentRoom).map((item) => item.username)));
+    const typingNames = Array.from(new Set((data.typing || []).filter((item) => item.room_id === state.currentRoom).map((item) => item.display_name || item.username)));
     ui.typingIndicator.hidden = typingNames.length === 0;
     ui.typingIndicator.textContent = typingNames.length ? `${typingNames.join(", ")} ${typingNames.length === 1 ? "is" : "are"} typing…` : "";
     state.lastId = data.last_id ?? state.lastId;

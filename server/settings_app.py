@@ -19,7 +19,7 @@ HERE = Path(__file__).resolve().parent
 HOST = HERE / "host.py"
 DATA = HERE / "data"
 CONFIG = DATA / "server-settings.json"
-LOG = DATA / "host.log"
+LOG = DATA / "host-errors.log"
 
 DEFAULTS = {
     "photos": True,
@@ -51,6 +51,9 @@ class HostSettingsApp:
         self.port = tk.StringVar(value="8443")
         self.public_url = tk.StringVar(value="")
         self.status = tk.StringVar(value="Ready to configure")
+        self.credentials = tk.StringVar(value="Not started yet — start the server to load its saved credentials.")
+        self.vault_phrase = ""
+        self.pairing_code = ""
         self.vars = {name: tk.BooleanVar(value=DEFAULTS[name]) for name in DEFAULTS}
         self._load_config()
         self._style()
@@ -108,6 +111,12 @@ class HostSettingsApp:
         ttk.Label(row, text="Public URL (optional)", style="TLabel").pack(side="left")
         ttk.Entry(row, textvariable=self.public_url).pack(side="left", fill="x", expand=True, padx=(10, 0))
         ttk.Label(network, text="An address change does not rotate your secrets. Remote clients still need a reachable IPv6 address or hostname.", style="Muted.TLabel", wraplength=620).pack(anchor="w", pady=(8, 0))
+
+        secrets_panel = ttk.Frame(outer, style="Panel.TFrame", padding=14)
+        secrets_panel.pack(fill="x", pady=(0, 12))
+        ttk.Label(secrets_panel, text="PERSISTENT HOST CREDENTIALS").pack(anchor="w", pady=(0, 6))
+        ttk.Label(secrets_panel, textvariable=self.credentials, style="Muted.TLabel", wraplength=620).pack(anchor="w")
+        ttk.Label(secrets_panel, text="Keep these values private. They stay on this host and are not sent to clients until you share them.", style="Muted.TLabel", wraplength=620).pack(anchor="w", pady=(5, 0))
 
         options = ttk.Frame(outer, style="Panel.TFrame", padding=14)
         options.pack(fill="x", pady=(0, 12))
@@ -190,12 +199,14 @@ class HostSettingsApp:
         if config["public_url"]:
             command.extend(["--public-url", config["public_url"]])
         try:
+            # Host stdout includes the vault phrase and pairing code. Never persist
+            # those secrets in a log file; only diagnostic stderr is recorded.
             self.log_handle = LOG.open("a", encoding="utf-8")
             self.process = subprocess.Popen(
                 command,
                 cwd=str(HERE),
-                stdout=self.log_handle,
-                stderr=subprocess.STDOUT,
+                stdout=subprocess.DEVNULL,
+                stderr=self.log_handle,
                 stdin=subprocess.DEVNULL,
             )
         except OSError as exc:
@@ -209,11 +220,22 @@ class HostSettingsApp:
 
     def _report_start(self) -> None:
         if self.process and self.process.poll() is None:
-            self.status.set("Server process running · check host.log for pairing details")
+            self._load_credentials()
+            self.status.set("Server process running · credentials shown above · diagnostics in host-errors.log")
         else:
-            self.status.set("Server exited · open server/data/host.log for details")
+            self.status.set("Server exited · open server/data/host-errors.log for details")
             self.start_button.configure(state="normal")
             self.stop_button.configure(state="disabled")
+
+    def _load_credentials(self) -> None:
+        try:
+            vault = (DATA / "vault-passphrase.txt").read_text(encoding="utf-8").strip()
+            pairing = (DATA / "pairing-code.txt").read_text(encoding="utf-8").strip()
+            self.vault_phrase = vault
+            self.pairing_code = pairing
+            self.credentials.set(f"Vault phrase: {vault}\nPairing code: {pairing}")
+        except OSError:
+            self.credentials.set("Credentials are being initialized. Wait a moment, then check again.")
 
     def stop_server(self) -> None:
         if not self.process or self.process.poll() is not None:
@@ -235,7 +257,7 @@ class HostSettingsApp:
 
     def _watch_process(self) -> None:
         if self.process and self.process.poll() is not None:
-            self.status.set("Server stopped or exited · see host.log")
+            self.status.set("Server stopped or exited · see host-errors.log")
             self.start_button.configure(state="normal")
             self.stop_button.configure(state="disabled")
             if self.log_handle:
