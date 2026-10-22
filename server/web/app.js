@@ -924,7 +924,9 @@
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Could not create server.");
       state.currentServer = data.id;
+      state.currentRoom = data.id + "_general";
       localStorage.setItem("ts.server", data.id);
+      localStorage.setItem(LS.room, state.currentRoom);
       state.lastId = 0;
       state.syncSince = "";
       state.messageIds.clear();
@@ -956,6 +958,10 @@
       state.messageIds.clear();
       state.messages = [];
       await initialSync();
+      if (state.rooms.length) {
+        state.currentRoom = state.rooms[0].id;
+        localStorage.setItem(LS.room, state.currentRoom);
+      }
       renderServers();
       renderRooms();
       renderMessages();
@@ -987,6 +993,10 @@
     state.messages = [];
     state.unread.clear();
     await initialSync();
+    if (state.rooms.length) {
+      state.currentRoom = state.rooms[0].id;
+      localStorage.setItem(LS.room, state.currentRoom);
+    }
     renderServers();
     renderRooms();
     renderMessages();
