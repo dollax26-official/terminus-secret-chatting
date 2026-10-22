@@ -1033,6 +1033,7 @@ class Handler(BaseHTTPRequestHandler):
                 conn.execute("INSERT INTO reactions(message_id, account_id, emoji, created_at) VALUES(?,?,?,?)",
                              (message_id, account_id, emoji, now_iso()))
                 active = True
+            conn.execute("UPDATE messages SET edited_at=? WHERE id=?", (now_iso(), message_id))
             rows = conn.execute("SELECT emoji, COUNT(*) AS count FROM reactions WHERE message_id=? GROUP BY emoji",
                                 (message_id,)).fetchall()
         with MESSAGE_COND:
@@ -1051,7 +1052,7 @@ class Handler(BaseHTTPRequestHandler):
             if row is None or row["deleted_at"]:
                 self._error(404, "message not found")
                 return
-            conn.execute("UPDATE messages SET pinned=? WHERE id=?", (1 if pinned else 0, message_id))
+            conn.execute("UPDATE messages SET pinned=?, edited_at=? WHERE id=?", (1 if pinned else 0, now_iso(), message_id))
         with MESSAGE_COND:
             MESSAGE_COND.notify_all()
         self._send_json(200, {"ok": True, "message_id": message_id, "pinned": pinned})
