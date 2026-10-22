@@ -1374,23 +1374,21 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 targets.append(dict(target))
             participants = [device["account_id"]] + [target["id"] for target in targets]
-            placeholders = ",".join("?" for _ in participants)
-            existing = conn.execute(
-                f"""SELECT r.id, r.name, r.description, r.created_at, r.server_id, r.kind
-                    FROM rooms r
-                    WHERE r.kind='dm'
-                      AND (SELECT COUNT(*) FROM room_members rm WHERE rm.room_id=r.id)=?
-                      AND NOT EXISTS (
-                        SELECT 1 FROM room_members rm WHERE rm.room_id=r.id
-                        AND rm.account_id NOT IN ({placeholders})
-                      )
-                      AND NOT EXISTS (
-                        SELECT 1 FROM (SELECT ? AS account_id UNION SELECT account_id FROM room_members WHERE room_id=r.id) x
-                        WHERE x.account_id NOT IN ({placeholders})
-                      )
-                    ORDER BY r.created_at ASC LIMIT 1""",
-                (len(participants), *participants, device["account_id"], *participants),
-            ).fetchone()
+            participant_set = set(participants)
+            existing = None
+            candidates = conn.execute(
+                """SELECT r.id, r.name, r.description, r.created_at, r.server_id, r.kind
+                   FROM rooms r JOIN room_members mine ON mine.room_id=r.id
+                   WHERE r.kind='dm' AND mine.account_id=? ORDER BY r.created_at ASC""",
+                (device["account_id"],),
+            ).fetchall()
+            for candidate in candidates:
+                member_ids = {row["account_id"] for row in conn.execute(
+                    "SELECT account_id FROM room_members WHERE room_id=?", (candidate["id"],)
+                ).fetchall()}
+                if member_ids == participant_set:
+                    existing = candidate
+                    break
             if existing is not None:
                 result = dict(existing)
                 if len(targets) == 1:
