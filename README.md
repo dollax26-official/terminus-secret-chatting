@@ -81,7 +81,9 @@ The host stores `nonce`, `ciphertext`, `room_id`, `device_id`, and a timestamp. 
 
 Requirements: Python 3.11+.
 
-For the graphical host manager (recommended on Windows):
+**Standalone Windows host app (no CMD window):** download the `TerminusSecrets-Host-Manager-Windows` artifact from the latest successful [GitHub Actions build](https://github.com/dollax26-official/terminus-secret-chatting/actions). Extract both `TerminusSecretsHostManager.exe` and `TerminusSecretsHost.exe` into the same folder, then double-click **TerminusSecretsHostManager.exe**. Keep both files together; the manager launches the host executable when you press **Start server**.
+
+**Run the graphical manager from source:**
 
 ```powershell
 cd server
@@ -89,7 +91,7 @@ python -m pip install -r requirements.txt
 python settings_app.py
 ```
 
-Choose whether photos, voice notes, voice calls, video calls, and screen sharing should be shown in the shared clients. The manager saves settings in `server/data/server-settings.json`, estimates RAM use, and starts/stops the host with the **Start server** button. The estimate is a planning guide, not a benchmark; actual client-side media memory varies by device and call conditions.
+Choose whether photos, voice notes, voice calls, video calls, and screen sharing should be shown in the shared clients. The manager saves settings in its persistent `data` folder, estimates RAM use, and starts/stops the host with the **Start server** button. The estimate is a planning guide, not a benchmark; actual client-side media memory varies by device and call conditions. The packaged app keeps the database, certificate, vault phrase, pairing code, and settings beside the executable so they survive restarts and network changes.
 
 To run without the graphical manager:
 

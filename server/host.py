@@ -41,8 +41,15 @@ from urllib.parse import parse_qs, urlparse
 
 APP_NAME = "Terminus Secrets"
 APP_VERSION = "1.0.0"
-BASE_DIR = Path(__file__).resolve().parent
-WEB_DIR = BASE_DIR / "web"
+# In a PyInstaller build, serve bundled web assets from the extraction directory but
+# keep the database, TLS identity, and credentials beside the executable.
+if getattr(sys, "frozen", False):
+    BASE_DIR = Path(sys.executable).resolve().parent
+    RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", BASE_DIR))
+    WEB_DIR = RESOURCE_DIR / "web"
+else:
+    BASE_DIR = Path(__file__).resolve().parent
+    WEB_DIR = BASE_DIR / "web"
 DEFAULT_DATA_DIR = BASE_DIR / "data"
 
 MAX_BODY = 128 * 1024

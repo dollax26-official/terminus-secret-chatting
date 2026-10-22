@@ -18,8 +18,10 @@ import ipaddress
 from pathlib import Path
 from tkinter import messagebox, ttk
 
-HERE = Path(__file__).resolve().parent
+FROZEN = bool(getattr(sys, "frozen", False))
+HERE = Path(sys.executable).resolve().parent if FROZEN else Path(__file__).resolve().parent
 HOST = HERE / "host.py"
+HOST_EXE = HERE / "TerminusSecretsHost.exe"
 DATA = HERE / "data"
 CONFIG = DATA / "server-settings.json"
 LOG = DATA / "host-errors.log"
@@ -335,7 +337,19 @@ class HostSettingsApp:
         except ValueError as exc:
             messagebox.showerror("Check settings", str(exc))
             return
-        command = [sys.executable, str(HOST), "--port", str(config["port"]), "--config", str(CONFIG)]
+        if HOST_EXE.is_file():
+            # Packaged distribution: launch the host executable beside this manager.
+            # Persistent data stays beside the manager, not in a temporary extraction directory.
+            command = [
+                str(HOST_EXE), "--port", str(config["port"]),
+                "--config", str(CONFIG), "--data-dir", str(DATA),
+            ]
+        else:
+            # Source checkout: use the current Python interpreter and host.py.
+            command = [
+                sys.executable, str(HOST), "--port", str(config["port"]),
+                "--config", str(CONFIG), "--data-dir", str(DATA),
+            ]
         if config["public_url"]:
             command.extend(["--public-url", config["public_url"]])
         try:
