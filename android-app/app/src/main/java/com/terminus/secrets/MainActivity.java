@@ -33,6 +33,8 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.webkit.WebChromeClient;
+import android.webkit.PermissionRequest;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -94,6 +96,9 @@ public class MainActivity extends Activity {
     private ProgressBar progress;
     private String serverUrl;
     private String pin;
+    private static final int MEDIA_PERMISSION_REQUEST = 4702;
+    private PermissionRequest pendingMediaRequest;
+    private String[] pendingMediaResources = new String[0];
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -342,6 +347,47 @@ public class MainActivity extends Activity {
         settings.setUserAgentString(settings.getUserAgentString() + " TerminusAndroid/1.0");
 
         webView.setWebViewClient(new ChatWebViewClient(this));
+        webView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public void onPermissionRequest(PermissionRequest request) {
+                runOnUiThread(() -> {
+                    java.util.ArrayList<String> approvedResources = new java.util.ArrayList<>();
+                    java.util.ArrayList<String> neededPermissions = new java.util.ArrayList<>();
+                    for (String resource : request.getResources()) {
+                        if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resource)) {
+                            approvedResources.add(resource);
+                            if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                                neededPermissions.add(Manifest.permission.RECORD_AUDIO);
+                            }
+                        } else if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource)) {
+                            approvedResources.add(resource);
+                            if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                                neededPermissions.add(Manifest.permission.CAMERA);
+                            }
+                        }
+                    }
+                    if (approvedResources.isEmpty()) {
+                        request.deny();
+                        return;
+                    }
+                    pendingMediaResources = approvedResources.toArray(new String[0]);
+                    if (!neededPermissions.isEmpty()) {
+                        pendingMediaRequest = request;
+                        requestPermissions(neededPermissions.toArray(new String[0]), MEDIA_PERMISSION_REQUEST);
+                    } else {
+                        request.grant(pendingMediaResources);
+                    }
+                });
+            }
+
+            @Override
+            public void onPermissionRequestCanceled(PermissionRequest request) {
+                if (pendingMediaRequest == request) {
+                    pendingMediaRequest = null;
+                    pendingMediaResources = new String[0];
+                }
+            }
+        });
         webView.addJavascriptInterface(new NativeNotifications(), "TerminusNative");
 
         root.addView(webView, new LinearLayout.LayoutParams(
@@ -349,6 +395,20 @@ public class MainActivity extends Activity {
 
         setContentView(root);
         webView.loadUrl(serverUrl + "/app/");
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode != MEDIA_PERMISSION_REQUEST) return;
+        PermissionRequest request = pendingMediaRequest;
+        pendingMediaRequest = null;
+        if (request == null) return;
+        boolean granted = grantResults.length > 0;
+        for (int result : grantResults) granted &= result == PackageManager.PERMISSION_GRANTED;
+        if (granted) request.grant(pendingMediaResources);
+        else request.deny();
+        pendingMediaResources = new String[0];
     }
 
     private void createNotificationChannel() {
