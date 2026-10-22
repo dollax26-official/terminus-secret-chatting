@@ -39,7 +39,8 @@ Terminus Secrets gives you a Windows desktop client and an Android client that t
 ## Current chat controls
 
 - Server accounts are required before device pairing: unique username + password, PBKDF2-HMAC-SHA256 password hashes, and revocable 30-day account sessions.
-- Create multiple servers, join using an invite code, and switch between servers.
+- Save multiple host URLs (including bracketed IPv6 addresses) in the sidebar. Selecting one opens its trusted host setup and requires sign-in, pairing code, and vault passphrase; account/device state is separated per host.
+- Create multiple chat servers on a host, join using an invite code, and switch between them.
 - Each server has owner/admin/member roles. Owners can promote/demote admins; owners and admins can create, rename, and delete channels.
 - Public text channels are visible to server members. Private channels are visible only to invited channel members; owners/admins can add existing server members.
 - One-to-one and group direct messages are supported. The host checks conversation membership on message sync, sending, editing, deleting, reacting, and pinning.
