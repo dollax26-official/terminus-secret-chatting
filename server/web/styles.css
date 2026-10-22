@@ -1263,3 +1263,92 @@ html, body {
     padding-bottom: max(14px, env(safe-area-inset-bottom));
   }
 }
+
+/* Round 4: scroll ownership and flex sizing for desktop + Android WebView. */
+/* The rail itself scrolls when the full sidebar is taller than the viewport. */
+#chatView .rail {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  max-height: 100vh;
+  max-height: 100dvh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+}
+
+/* Keep headings and footer controls at their natural height; let each list scroll
+   within a bounded region. At the end of a list, wheel/touch can reach the rail. */
+#chatView .rail > :not(.rooms):not(.saved-host-list) {
+  flex: 0 0 auto;
+}
+#chatView .rail .rooms {
+  flex: 0 1 auto;
+  min-height: 48px;
+  max-height: clamp(88px, 22vh, 220px);
+  max-height: clamp(88px, 22dvh, 220px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+}
+#chatView .rail .saved-host-list {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: clamp(64px, 14vh, 120px);
+  max-height: clamp(64px, 14dvh, 120px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+}
+
+/* The message timeline must be the flexible scrollport, not the whole page.
+   Zero flex-basis plus min-height:0 is important for Chromium/WebView flexbox. */
+#chatView .stage {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+#chatView .stage-head,
+#chatView .composer,
+#chatView .typing-indicator {
+  flex-shrink: 0;
+}
+#chatView .messages {
+  flex: 1 1 0px;
+  height: 0;
+  min-height: 0;
+  min-width: 0;
+  max-height: none;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  scrollbar-gutter: stable;
+}
+#chatView .messages > * {
+  flex-shrink: 0;
+}
+@media (max-width: 820px) {
+  #chatView .rail {
+    height: 100vh;
+    height: 100dvh;
+    max-height: 100vh;
+    max-height: 100dvh;
+  }
+  #chatView .rail .rooms {
+    max-height: clamp(80px, 20vh, 180px);
+    max-height: clamp(80px, 20dvh, 180px);
+  }
+}
+
