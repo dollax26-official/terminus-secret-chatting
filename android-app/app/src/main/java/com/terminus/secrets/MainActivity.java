@@ -33,6 +33,8 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.webkit.WebChromeClient;
+import android.webkit.PermissionRequest;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -77,6 +79,7 @@ public class MainActivity extends Activity {
     private static final String PREF_HOSTS = "saved_hosts";
     private static final String NOTIFICATION_CHANNEL = "terminus_messages";
     private static final int NOTIFICATION_PERMISSION_REQUEST = 4701;
+    private static final int MEDIA_PERMISSION_REQUEST = 4702;
 
     private static final int BG = Color.parseColor("#06090E");
     private static final int PANEL = Color.parseColor("#0C121A");
@@ -95,6 +98,7 @@ public class MainActivity extends Activity {
     private ProgressBar progress;
     private String serverUrl;
     private String pin;
+    private PermissionRequest pendingPermissionRequest;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -343,6 +347,35 @@ public class MainActivity extends Activity {
         settings.setUserAgentString(settings.getUserAgentString() + " TerminusAndroid/1.0");
 
         webView.setWebViewClient(new ChatWebViewClient(this));
+        webView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public void onPermissionRequest(PermissionRequest request) {
+                runOnUiThread(() -> {
+                    java.util.ArrayList<String> needed = new java.util.ArrayList<>();
+                    for (String resource : request.getResources()) {
+                        if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resource)
+                                && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                            needed.add(Manifest.permission.RECORD_AUDIO);
+                        }
+                        if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource)
+                                && checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                            needed.add(Manifest.permission.CAMERA);
+                        }
+                    }
+                    if (!needed.isEmpty()) {
+                        pendingPermissionRequest = request;
+                        requestPermissions(needed.toArray(new String[0]), MEDIA_PERMISSION_REQUEST);
+                    } else {
+                        request.grant(request.getResources());
+                    }
+                });
+            }
+
+            @Override
+            public void onPermissionRequestCanceled(PermissionRequest request) {
+                if (pendingPermissionRequest == request) pendingPermissionRequest = null;
+            }
+        });
         webView.addJavascriptInterface(new NativeNotifications(), "TerminusNative");
 
         root.addView(webView, new LinearLayout.LayoutParams(
@@ -471,6 +504,20 @@ public class MainActivity extends Activity {
             return;
         }
         super.onBackPressed();
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == MEDIA_PERMISSION_REQUEST) {
+            PermissionRequest request = pendingPermissionRequest;
+            pendingPermissionRequest = null;
+            if (request == null) return;
+            boolean granted = grantResults.length > 0;
+            for (int result : grantResults) granted &= result == PackageManager.PERMISSION_GRANTED;
+            if (granted) request.grant(request.getResources());
+            else request.deny();
+        }
     }
 
     @Override
