@@ -609,7 +609,8 @@ class Handler(BaseHTTPRequestHandler):
                          ORDER BY m.id ASC LIMIT 200
                         """,
                         (after, updated_after, updated_after, device["account_id"], server_id, server_id,
-                         device["account_id"], server_id, server_id, device["account_id"], device["account_id"]),
+                         device["account_id"], server_id, server_id, server_id,
+                         device["account_id"], device["account_id"]),
                     ).fetchall()
                     remaining = deadline - time.monotonic()
                     if rows or remaining <= 0 or wait == 0 or TYPING_VERSION != typing_version:
