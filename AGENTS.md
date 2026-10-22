@@ -4,6 +4,8 @@
 Before changing the shared web client, consult [UI Guides & Agent Rules](https://github.com/strongeron/ui-guides-agent-rules) and search its [principle index](https://ui-guides-agent-rules.netlify.app/principles/index.md) for the surfaces actually touched. Use only relevant individual rules and keep attribution to their original authors.
 
 ## Required UI behavior
+- **MUST** verify scroll reachability, not just visual layout: any screen with content taller than the viewport needs a constrained-height scroll container (height/max-height plus overflow-y: auto), and must not rely on min-height alone when an ancestor clips overflow.
+- **MUST** test the top and bottom of connect/auth forms, the sidebar, dialogs, and call controls at 360×640, 390×844, and short desktop viewports; check that the final button can be reached with touch, mouse wheel, and keyboard.
 - **MUST** use semantic buttons for actions, labels for inputs, and visible keyboard focus; do not make clickable `div` elements.
 - **MUST** give forms an explicit submit path, inline error text, disabled/loading feedback while a request is in flight, and preserve typed values after recoverable failures.
 - **MUST** keep actions available on narrow Android WebView screens; test at 360 px width and desktop widths. Use touch targets of at least 40 px where layout permits.
