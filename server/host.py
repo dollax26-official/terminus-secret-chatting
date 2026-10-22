@@ -705,11 +705,12 @@ class Handler(BaseHTTPRequestHandler):
                                    EXISTS (SELECT 1 FROM room_members rm WHERE rm.room_id=r.id AND rm.account_id=?)
                                    OR EXISTS (SELECT 1 FROM server_members sm WHERE sm.server_id=r.server_id
                                               AND sm.account_id=? AND sm.role IN ('owner','admin'))
+                                   OR ?=1
                                ))
                                ORDER BY r.created_at ASC""",
                             (device["account_id"], device["account_id"], server_id, server_id,
                              device["account_id"], server_id, server_id, server_id, server_id,
-                             device["account_id"], device["account_id"]),
+                             device["account_id"], device["account_id"], int(bool(device["master_authorized"]))),
                         ).fetchall()
                         servers = conn.execute(
                             """SELECT s.id, s.name, s.description, s.invite_code, sm.role
@@ -1544,26 +1545,33 @@ class Handler(BaseHTTPRequestHandler):
                 "SELECT role FROM server_members WHERE server_id=? AND account_id=?",
                 (room["server_id"], device["account_id"]),
             ).fetchone()
-            if actor is None or actor["role"] not in ("owner", "admin"):
-                self._error(403, "only server owners and admins can add private-channel members")
+            if not device["master_authorized"] and (actor is None or actor["role"] not in ("owner", "admin")):
+                self._error(403, "only server owners/admins or a master-key device can manage private-channel access")
                 return
             target = conn.execute("SELECT id FROM accounts WHERE username=? COLLATE NOCASE", (username,)).fetchone()
             if target is None:
                 self._error(404, "user not found")
                 return
-            if not conn.execute(
-                "SELECT 1 FROM server_members WHERE server_id=? AND account_id=?",
+            target_member = conn.execute(
+                "SELECT role FROM server_members WHERE server_id=? AND account_id=?",
                 (room["server_id"], target["id"]),
-            ).fetchone():
+            ).fetchone()
+            if target_member is None:
                 self._error(400, "that user must join this server first")
                 return
-            conn.execute(
-                "INSERT OR IGNORE INTO room_members(room_id,account_id,joined_at) VALUES(?,?,?)",
-                (room_id, target["id"], now_iso()),
-            )
+            if action == "remove":
+                if target_member["role"] in ("owner", "admin"):
+                    self._error(400, "server owners and admins always have private-channel access; change their server role first")
+                    return
+                conn.execute("DELETE FROM room_members WHERE room_id=? AND account_id=?", (room_id, target["id"]))
+            else:
+                conn.execute(
+                    "INSERT OR IGNORE INTO room_members(room_id,account_id,joined_at) VALUES(?,?,?)",
+                    (room_id, target["id"], now_iso()),
+                )
         with MESSAGE_COND:
             MESSAGE_COND.notify_all()
-        self._send_json(200, {"ok": True, "room_id": room_id, "username": username})
+        self._send_json(200, {"ok": True, "action": action, "room_id": room_id, "username": username})
 
     def _open_dm(self, device: sqlite3.Row, body: dict) -> None:
         raw_names = body.get("usernames")
