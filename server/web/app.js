@@ -8,14 +8,33 @@
   const $ = (sel, root = document) => root.querySelector(sel);
   const enc = new TextEncoder();
   const dec = new TextDecoder();
+  const initialUrlParams = new URLSearchParams(location.search);
+  const ACTIVE_HOST_KEY = initialUrlParams.get("ts_active_host") ||
+    localStorage.getItem("ts.activeHost") || location.origin;
+  localStorage.setItem("ts.activeHost", ACTIVE_HOST_KEY);
   const LS = {
-    token: "ts.token",
-    accountToken: "ts.account-token",
-    account: "ts.account",
-    device: "ts.device",
-    name: "ts.name",
-    room: "ts.room",
+    token: `ts.token:${ACTIVE_HOST_KEY}`,
+    accountToken: `ts.account-token:${ACTIVE_HOST_KEY}`,
+    account: `ts.account:${ACTIVE_HOST_KEY}`,
+    device: `ts.device:${ACTIVE_HOST_KEY}`,
+    name: `ts.name:${ACTIVE_HOST_KEY}`,
+    room: `ts.room:${ACTIVE_HOST_KEY}`,
+    server: `ts.server:${ACTIVE_HOST_KEY}`,
   };
+  // One-time migration from the original single-host localStorage keys.
+  if (localStorage.getItem("ts.legacyKeysMigrated") !== "1") {
+    for (const [oldKey, newKey] of [
+      ["ts.token", LS.token], ["ts.account-token", LS.accountToken],
+      ["ts.account", LS.account], ["ts.device", LS.device],
+      ["ts.name", LS.name], ["ts.room", LS.room], ["ts.server", LS.server],
+    ]) {
+      if (!localStorage.getItem(newKey) && localStorage.getItem(oldKey)) {
+        localStorage.setItem(newKey, localStorage.getItem(oldKey));
+      }
+      localStorage.removeItem(oldKey);
+    }
+    localStorage.setItem("ts.legacyKeysMigrated", "1");
+  }
   const VAULT_MARKER = "terminus-vault-v1";
   const AAD_PREFIX = "terminus-secrets:v1:";
   const CHECK_AAD = "terminus-secrets:vault-check:v1";
@@ -35,7 +54,7 @@
     rooms: [],
     servers: [],
     serverMembers: [],
-    activeServerId: localStorage.getItem("ts.server") || "",
+    activeServerId: localStorage.getItem(LS.server) || "",
     savedHosts: (() => { try { const value = JSON.parse(localStorage.getItem("ts.hosts") || "[]"); return Array.isArray(value) ? value : []; } catch (_) { return []; } })(),
     searchQuery: "",
     devices: [],
@@ -440,7 +459,7 @@
     });
     ui.serverSelect.addEventListener("change", () => {
       state.activeServerId = ui.serverSelect.value;
-      localStorage.setItem("ts.server", state.activeServerId);
+      localStorage.setItem(LS.server, state.activeServerId);
       const first = state.rooms.find((room) => room.kind !== "dm" && room.server_id === state.activeServerId);
       if (first) selectRoom(first.id); else renderRooms();
     });
@@ -761,7 +780,7 @@
     state.serverMembers = data.server_members || state.serverMembers;
     if (!state.activeServerId || !state.servers.some((server) => server.id === state.activeServerId)) {
       state.activeServerId = state.servers[0]?.id || "";
-      if (state.activeServerId) localStorage.setItem("ts.server", state.activeServerId);
+      if (state.activeServerId) localStorage.setItem(LS.server, state.activeServerId);
     }
     state.devices = data.devices || state.devices;
     const typingNames = Array.from(new Set((data.typing || []).filter((item) => item.room_id === state.currentRoom).map((item) => item.username)));
@@ -1523,7 +1542,7 @@
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Could not create server.");
       state.activeServerId = data.id;
-      localStorage.setItem("ts.server", data.id);
+      localStorage.setItem(LS.server, data.id);
       await refreshSync();
       const channel = state.rooms.find((room) => room.server_id === data.id && room.kind !== "dm");
       if (channel) selectRoom(channel.id); else renderRooms();
@@ -1540,7 +1559,7 @@
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Could not join server.");
       state.activeServerId = data.id;
-      localStorage.setItem("ts.server", data.id);
+      localStorage.setItem(LS.server, data.id);
       await refreshSync();
       const channel = state.rooms.find((room) => room.server_id === data.id && room.kind !== "dm");
       if (channel) selectRoom(channel.id);
@@ -1882,6 +1901,7 @@
       const normalized = normalizeHostUrl(url);
       const hostsJson = JSON.stringify(state.savedHosts);
       const hostList = encodeURIComponent(hostsJson);
+      const activeHost = "&ts_active_host=" + encodeURIComponent(normalized);
       if (window.TerminusNative && typeof window.TerminusNative.switchHost === "function") {
         window.TerminusNative.switchHost(normalized, hostsJson);
         return;
@@ -1890,7 +1910,7 @@
         location.href = "/setup?host=" + encodeURIComponent(normalized) + "&ts_hosts=" + hostList + "&ts_force_pair=1";
         return;
       }
-      location.href = normalized + "/app/?ts_hosts=" + hostList + "&ts_force_pair=1";
+      location.href = normalized + "/app/?ts_hosts=" + hostList + "&ts_force_pair=1" + activeHost;
     } catch (err) { toast(err.message || "Could not open host.", "error"); }
   }
 
