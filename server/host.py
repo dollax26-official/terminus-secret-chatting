@@ -785,6 +785,8 @@ class Handler(BaseHTTPRequestHandler):
                 TYPING_STATE[key] = time.time()
             else:
                 TYPING_STATE.pop(key, None)
+            with MESSAGE_COND:
+                MESSAGE_COND.notify_all()
             self._send_json(200, {"ok": True})
             return
 
