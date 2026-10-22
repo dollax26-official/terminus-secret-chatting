@@ -855,6 +855,10 @@ class Handler(BaseHTTPRequestHandler):
                 if room is None or room["kind"] != "dm":
                     self._error(403, "calls are currently supported in direct messages only")
                     return
+                member_count = conn.execute("SELECT COUNT(*) FROM room_members WHERE room_id=?", (room_id,)).fetchone()[0]
+                if member_count != 2:
+                    self._error(403, "calls currently require a one-to-one direct message")
+                    return
                 conn.execute(
                     "INSERT INTO call_signals(room_id,sender_account_id,kind,payload,created_at) VALUES(?,?,?,?,?)",
                     (room_id, device["account_id"], kind, encoded, now_iso()),
