@@ -64,6 +64,7 @@ MESSAGE_COND = threading.Condition()
 PAIR_LOCK = threading.Lock()
 PAIR_ATTEMPTS: dict[str, list[float]] = {}
 LAST_SEEN_CACHE: dict[str, float] = {}
+TYPING_STATE: dict[tuple[str, str], float] = {}
 
 MIME_OVERRIDES = {
     ".js": "application/javascript; charset=utf-8",
@@ -637,6 +638,18 @@ class Handler(BaseHTTPRequestHandler):
                             "WHERE revoked=0 AND account_id=? ORDER BY created_at ASC",
                             (device["account_id"],),
                         ).fetchall()
+                        accessible_room_ids = {row["id"] for row in rooms}
+                        now = time.time()
+                        typing_rows = []
+                        for (typing_room, typing_account), seen_at in list(TYPING_STATE.items()):
+                            if now - seen_at > 5:
+                                TYPING_STATE.pop((typing_room, typing_account), None)
+                                continue
+                            if typing_account == device["account_id"] or typing_room not in accessible_room_ids:
+                                continue
+                            typing_user = conn.execute("SELECT username FROM accounts WHERE id=?", (typing_account,)).fetchone()
+                            if typing_user:
+                                typing_rows.append({"room_id": typing_room, "username": typing_user["username"]})
                         more = conn.execute(
                             "SELECT 1 FROM messages WHERE id > ? LIMIT 1",
                             (rows[-1]["id"] if rows else after,),
@@ -673,6 +686,7 @@ class Handler(BaseHTTPRequestHandler):
                             ],
                             "servers": [dict(row) for row in servers],
                             "server_members": [dict(row) for row in server_members],
+                            "typing": typing_rows,
                             "devices": [
                                 {
                                     "id": row["id"],
@@ -752,6 +766,26 @@ class Handler(BaseHTTPRequestHandler):
             if device is None:
                 return
             self._open_dm(device, body)
+            return
+
+        if path == "/api/typing":
+            device = self._require_device()
+            if device is None:
+                return
+            room_id = str(body.get("room_id") or "").strip()
+            if not room_id:
+                self._error(400, "room_id required")
+                return
+            with db() as conn:
+                if not self._can_access_room(conn, device["account_id"], room_id):
+                    self._error(404, "conversation not found")
+                    return
+            key = (room_id, device["account_id"])
+            if bool(body.get("typing")):
+                TYPING_STATE[key] = time.time()
+            else:
+                TYPING_STATE.pop(key, None)
+            self._send_json(200, {"ok": True})
             return
 
         if path == "/api/rooms/member":
