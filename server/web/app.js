@@ -457,7 +457,9 @@
     ui.roleForm.addEventListener("submit", submitServerRole);
     ui.roomMemberForm.addEventListener("submit", submitEditingRoomMember);
     $("#closeRoleDialogBtn").addEventListener("click", () => ui.roleDialog.close());
+    $("#closeRoleDialogBtnBottom").addEventListener("click", () => ui.roleDialog.close());
     $("#closeRoomMemberDialogBtn").addEventListener("click", () => ui.roomMemberDialog.close());
+    $("#cancelRoomMemberDialogBtn").addEventListener("click", () => ui.roomMemberDialog.close());
     ui.accountForm = $("#accountForm");
     ui.accountPanel = $("#accountPanel");
     ui.accountError = $("#accountError");
