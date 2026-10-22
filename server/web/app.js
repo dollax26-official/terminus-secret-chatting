@@ -890,6 +890,7 @@
   }
 
   function enterChat() {
+    state.stopped = false;
     ui.connectView.hidden = true;
     ui.chatView.hidden = false;
     ui.passInput.value = "";
@@ -1652,8 +1653,9 @@
         state.messages = state.messages.filter((item) => item.room_id !== room.id);
         state.unread.delete(room.id);
         if (state.currentRoom === room.id) {
-          state.currentRoom = "general";
-          localStorage.setItem(LS.room, "general");
+          const nextRoom = state.rooms.find((item) => item.kind !== "dm" && item.server_id === state.activeServerId) || state.rooms[0];
+          state.currentRoom = nextRoom?.id || "general";
+          localStorage.setItem(LS.room, state.currentRoom);
           renderRooms();
           updateHeader();
           renderMessages();
