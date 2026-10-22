@@ -34,6 +34,7 @@
     key: null,
     rooms: [],
     servers: [],
+    serverMembers: [],
     activeServerId: localStorage.getItem("ts.server") || "",
     searchQuery: "",
     roomAdminRequired: false,
@@ -730,6 +731,7 @@
   async function applySync(data, options = {}) {
     state.rooms = data.rooms || state.rooms;
     state.servers = data.servers || state.servers;
+    state.serverMembers = data.server_members || state.serverMembers;
     if (!state.activeServerId || !state.servers.some((server) => server.id === state.activeServerId)) {
       state.activeServerId = state.servers[0]?.id || "";
       if (state.activeServerId) localStorage.setItem("ts.server", state.activeServerId);
@@ -1484,6 +1486,8 @@
     const server = state.servers.find((item) => item.id === state.activeServerId);
     if (!server) { toast("Select a server first.", "error"); return; }
     if (server.role !== "owner") { toast("Only the server owner can manage member roles.", "error"); return; }
+    const members = state.serverMembers.filter((member) => member.server_id === server.id);
+    window.alert("Server members:\\n" + (members.map((member) => `${member.username} — ${member.role}`).join("\\n") || "No members loaded"));
     const username = window.prompt("Username of an existing server member:");
     if (username === null || !username.trim()) return;
     const role = window.prompt("Set role: type admin or member", "admin");
