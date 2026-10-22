@@ -99,6 +99,7 @@ public class MainActivity extends Activity {
     private String serverUrl;
     private String pin;
     private PermissionRequest pendingPermissionRequest;
+    private String[] pendingMediaResources = new String[0];
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -352,28 +353,38 @@ public class MainActivity extends Activity {
             public void onPermissionRequest(PermissionRequest request) {
                 runOnUiThread(() -> {
                     java.util.ArrayList<String> needed = new java.util.ArrayList<>();
+                    java.util.ArrayList<String> allowed = new java.util.ArrayList<>();
                     for (String resource : request.getResources()) {
-                        if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resource)
-                                && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-                            needed.add(Manifest.permission.RECORD_AUDIO);
-                        }
-                        if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource)
-                                && checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-                            needed.add(Manifest.permission.CAMERA);
+                        if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resource)) {
+                            allowed.add(resource);
+                            if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
+                                needed.add(Manifest.permission.RECORD_AUDIO);
+                        } else if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource)) {
+                            allowed.add(resource);
+                            if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED)
+                                needed.add(Manifest.permission.CAMERA);
+                        } else {
+                            request.deny();
+                            return;
                         }
                     }
+                    if (allowed.isEmpty()) { request.deny(); return; }
                     if (!needed.isEmpty()) {
                         pendingPermissionRequest = request;
+                        pendingMediaResources = allowed.toArray(new String[0]);
                         requestPermissions(needed.toArray(new String[0]), MEDIA_PERMISSION_REQUEST);
                     } else {
-                        request.grant(request.getResources());
+                        request.grant(allowed.toArray(new String[0]));
                     }
                 });
             }
 
             @Override
             public void onPermissionRequestCanceled(PermissionRequest request) {
-                if (pendingPermissionRequest == request) pendingPermissionRequest = null;
+                if (pendingPermissionRequest == request) {
+                    pendingPermissionRequest = null;
+                    pendingMediaResources = new String[0];
+                }
             }
         });
         webView.addJavascriptInterface(new NativeNotifications(), "TerminusNative");
@@ -512,10 +523,12 @@ public class MainActivity extends Activity {
         if (requestCode == MEDIA_PERMISSION_REQUEST) {
             PermissionRequest request = pendingPermissionRequest;
             pendingPermissionRequest = null;
+            String[] allowedResources = pendingMediaResources;
+            pendingMediaResources = new String[0];
             if (request == null) return;
             boolean granted = grantResults.length > 0;
             for (int result : grantResults) granted &= result == PackageManager.PERMISSION_GRANTED;
-            if (granted) request.grant(request.getResources());
+            if (granted) request.grant(allowedResources);
             else request.deny();
         }
     }
