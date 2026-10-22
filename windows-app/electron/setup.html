@@ -115,6 +115,18 @@
         probed = {url: data.server_url, fingerprint: data.fingerprint, server_name: data.server_name};
       }
     } catch (err) { /* first run */ }
+    const params = new URLSearchParams(location.search);
+    const requestedHost = params.get('host');
+    if (requestedHost) {
+      $('url').value = requestedHost;
+      $('current').style.display = 'none';
+      $('trustBtn').textContent = 'Trust & open';
+      $('trustBtn').disabled = true;
+      probed = null;
+      const hosts = params.get('ts_hosts');
+      if (hosts) localStorage.setItem('ts.hosts', hosts);
+      if (params.get('ts_force_pair') === '1') localStorage.setItem('ts.forcePair', '1');
+    }
   }
 
   async function probe() {
