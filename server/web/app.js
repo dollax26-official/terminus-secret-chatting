@@ -2022,6 +2022,7 @@
       ui.localCallVideo.hidden = mode !== "video";
       ui.remoteCallVideo.hidden = mode !== "video";
       const pc = makePeerConnection(room.id);
+      if (mode === "audio") pc.addTransceiver("video", { direction: "sendrecv" });
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
@@ -2055,6 +2056,7 @@
         ui.localCallVideo.hidden = mode !== "video";
         ui.remoteCallVideo.hidden = mode !== "video";
         const pc = makePeerConnection(roomId);
+        if (mode === "audio") pc.addTransceiver("video", { direction: "sendrecv" });
         stream.getTracks().forEach((track) => pc.addTrack(track, stream));
         await pc.setRemoteDescription(detail.description);
         state.call.remoteDescriptionSet = true;
@@ -2092,7 +2094,8 @@
     if (!state.call?.pc) { toast("Start a call first.", "error"); return; }
     if (state.call.shareStream) {
       const cameraTrack = state.call.localStream.getVideoTracks()[0];
-      const sender = state.call.pc.getSenders().find((item) => item.track?.kind === "video");
+      const sender = state.call.pc.getSenders().find((item) => item.track?.kind === "video")
+        || state.call.pc.getTransceivers().find((item) => item.receiver.track.kind === "video")?.sender;
       if (sender) await sender.replaceTrack(cameraTrack || null);
       state.call.shareStream.getTracks().forEach((track) => track.stop());
       state.call.shareStream = null;
@@ -2108,7 +2111,8 @@
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 15 }, audio: false });
       const track = stream.getVideoTracks()[0];
-      const sender = state.call.pc.getSenders().find((item) => item.track?.kind === "video");
+      const sender = state.call.pc.getSenders().find((item) => item.track?.kind === "video")
+        || state.call.pc.getTransceivers().find((item) => item.receiver.track.kind === "video")?.sender;
       if (sender) await sender.replaceTrack(track);
       else state.call.pc.addTrack(track, stream);
       state.call.shareStream = stream;
