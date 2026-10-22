@@ -1859,13 +1859,25 @@
     if (!list) return;
     list.replaceChildren();
     for (const host of state.savedHosts) {
+      const row = el("div", "host-entry-row");
       const button = el("button", "host-entry");
       const name = el("span", "host-entry-name", host.name || new URL(host.url).hostname);
       const address = el("small", "host-entry-url", host.url);
       button.append(name, address);
       button.title = "Reconnect: sign in, enter the pairing code, then unlock the vault";
       button.addEventListener("click", () => connectToHost(host.url));
-      list.append(button);
+      const remove = el("button", "host-remove", "×");
+      remove.type = "button";
+      remove.title = "Remove saved host";
+      remove.setAttribute("aria-label", "Remove " + (host.name || host.url));
+      remove.addEventListener("click", (event) => {
+        event.stopPropagation();
+        if (!window.confirm("Remove " + (host.name || host.url) + " from saved hosts? This does not delete anything on that host.")) return;
+        state.savedHosts = state.savedHosts.filter((item) => item.url !== host.url);
+        saveHostList();
+      });
+      row.append(button, remove);
+      list.append(row);
     }
     if (!state.savedHosts.length) {
       list.append(el("p", "host-list-empty", "Add an HTTPS/IPv6 host to reconnect later."));
