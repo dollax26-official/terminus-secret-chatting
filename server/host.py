@@ -1541,7 +1541,7 @@ def print_banner(port: int, passphrase: str) -> None:
         "=" * 66,
         f"  This laptop :  https://127.0.0.1:{port}/app/",
         f"  Network     :  https://{LAN_IP}:{port}/app/",
-        f"  Public URL  :  {PUBLIC_URL + '/app/' if PUBLIC_URL else f'not set (direct IPv6: https://[YOUR_GLOBAL_IPV6]:{port}/app/ if available; otherwise Tailscale/tunnel)'}",
+        f"  Public URL  :  {PUBLIC_URL + '/app/' if PUBLIC_URL else 'not set (direct IPv6 format: https://[YOUR_GLOBAL_IPV6]:PORT/app/ if available; otherwise Tailscale/tunnel)'}",
         f"  Pairing code:  {PAIR_CODE}",
         f"  Master key  :  {MASTER_KEY}",
         f"  Vault phrase:  {passphrase}",
