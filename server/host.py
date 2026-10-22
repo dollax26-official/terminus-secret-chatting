@@ -881,7 +881,7 @@ class Handler(BaseHTTPRequestHandler):
                     if cur.rowcount == 0:
                         self._error(404, "room not found")
                         return
-                    row = conn.execute("SELECT id, name, description, created_at FROM rooms WHERE id=?", (room_id,)).fetchone()
+                    row = conn.execute("SELECT id, name, description, created_at, server_id, kind FROM rooms WHERE id=?", (room_id,)).fetchone()
                 with MESSAGE_COND:
                     MESSAGE_COND.notify_all()
                 self._send_json(200, dict(row))
