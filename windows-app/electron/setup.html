@@ -108,6 +108,7 @@
       const data = await res.json();
       if (data.configured) {
         $('url').value = data.server_url;
+        localStorage.setItem('ts.activeHost', data.server_url);
         $('current').style.display = 'flex';
         $('currentName').textContent = data.server_name || data.server_url;
         $('trustBtn').textContent = 'Open channel';
@@ -118,6 +119,7 @@
     const params = new URLSearchParams(location.search);
     const requestedHost = params.get('host');
     if (requestedHost) {
+      localStorage.setItem('ts.activeHost', requestedHost);
       $('url').value = requestedHost;
       $('current').style.display = 'none';
       $('trustBtn').textContent = 'Trust & open';
