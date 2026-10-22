@@ -1017,11 +1017,12 @@ class Handler(BaseHTTPRequestHandler):
             if action == "rename":
                 name = " ".join(str(body.get("name") or "").split())[:32]
                 description = " ".join(str(body.get("description") or "").split())[:120]
+                category = " ".join(str(body.get("category") or "").split())[:32]
                 if not name:
                     self._error(400, "name required")
                     return
                 with db() as conn:
-                    cur = conn.execute("UPDATE rooms SET name=?, description=? WHERE id=?", (name, description, room_id))
+                    cur = conn.execute("UPDATE rooms SET name=?, description=?, category=? WHERE id=?", (name, description, category, room_id))
                     if cur.rowcount == 0:
                         self._error(404, "room not found")
                         return
