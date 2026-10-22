@@ -266,7 +266,8 @@ def init_db(passphrase: str) -> None:
                 name TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 server_id TEXT NOT NULL DEFAULT 'srv_default',
-                kind TEXT NOT NULL DEFAULT 'text'
+                kind TEXT NOT NULL DEFAULT 'text',
+                category TEXT NOT NULL DEFAULT ''
             );
             CREATE TABLE IF NOT EXISTS room_members (
                 room_id TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
@@ -349,6 +350,8 @@ def init_db(passphrase: str) -> None:
             conn.execute("ALTER TABLE rooms ADD COLUMN description TEXT NOT NULL DEFAULT ''")
         if "kind" not in room_columns:
             conn.execute("ALTER TABLE rooms ADD COLUMN kind TEXT NOT NULL DEFAULT 'text'")
+        if "category" not in room_columns:
+            conn.execute("ALTER TABLE rooms ADD COLUMN category TEXT NOT NULL DEFAULT ''")
         if not conn.execute("SELECT 1 FROM meta WHERE key='vault_salt'").fetchone():
             conn.execute(
                 "INSERT INTO meta(key, value) VALUES('vault_salt', ?)",
@@ -609,7 +612,7 @@ class Handler(BaseHTTPRequestHandler):
                                         (SELECT a.username FROM room_members rm2 JOIN accounts a ON a.id=rm2.account_id
                                          WHERE rm2.room_id=r.id AND rm2.account_id<>? LIMIT 1), r.name)
                                         ELSE r.name END AS name,
-                                      r.description, r.created_at, r.server_id, r.kind
+                                      r.description, r.created_at, r.server_id, r.kind, r.category
                                FROM rooms r
                                WHERE (r.kind='text' AND r.server_id IN (
                                    SELECT sm.server_id FROM server_members sm WHERE sm.account_id=?
@@ -682,6 +685,7 @@ class Handler(BaseHTTPRequestHandler):
                                     "created_at": row["created_at"],
                                     "server_id": row["server_id"],
                                     "kind": row["kind"],
+                                    "category": row["category"],
                                 }
                                 for row in rooms
                             ],
@@ -919,7 +923,7 @@ class Handler(BaseHTTPRequestHandler):
                     if cur.rowcount == 0:
                         self._error(404, "room not found")
                         return
-                    row = conn.execute("SELECT id, name, description, created_at, server_id, kind FROM rooms WHERE id=?", (room_id,)).fetchone()
+                    row = conn.execute("SELECT id, name, description, created_at, server_id, kind, category FROM rooms WHERE id=?", (room_id,)).fetchone()
                 with MESSAGE_COND:
                     MESSAGE_COND.notify_all()
                 self._send_json(200, dict(row))
@@ -1451,6 +1455,7 @@ class Handler(BaseHTTPRequestHandler):
     def _create_room(self, device: sqlite3.Row, body: dict) -> None:
         name = " ".join(str(body.get("name") or "").split())[:32]
         description = " ".join(str(body.get("description") or "").split())[:120]
+        category = " ".join(str(body.get("category") or "").split())[:32]
         is_private = bool(body.get("private"))
         if not name:
             self._error(400, "name required")
@@ -1473,8 +1478,8 @@ class Handler(BaseHTTPRequestHandler):
             room_id = "r_" + secrets.token_hex(5)
             created_at = now_iso()
             conn.execute(
-                "INSERT INTO rooms(id, name, description, created_at, server_id, kind) VALUES(?,?,?,?,?,?)",
-                (room_id, name, description, created_at, server_id, "private" if is_private else "text"),
+                "INSERT INTO rooms(id, name, description, created_at, server_id, kind, category) VALUES(?,?,?,?,?,?,?)",
+                (room_id, name, description, created_at, server_id, "private" if is_private else "text", category),
             )
             if is_private:
                 conn.execute(
@@ -1492,6 +1497,7 @@ class Handler(BaseHTTPRequestHandler):
                 "created_at": created_at,
                 "server_id": server_id,
                 "kind": "private" if is_private else "text",
+                "category": category,
             },
         )
 
