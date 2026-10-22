@@ -216,8 +216,9 @@ public class MainActivity extends Activity {
         root.addView(status);
 
         TextView hint = new TextView(this);
-        hint.setText("The host prints its fingerprint and a pairing code when it starts. "
-                + "You will enter the pairing code and vault passphrase in the next screen.");
+        hint.setText("For direct IPv6 access without Tailscale, enter https://[your-global-ipv6]:8443 "
+                + "(keep the square brackets). The host prints its fingerprint and pairing code; "
+                + "you will enter the pairing code and vault passphrase next.");
         hint.setTextColor(FAINT);
         hint.setTextSize(11);
         hint.setLineSpacing(dp(3), 1f);
