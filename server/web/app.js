@@ -1107,8 +1107,18 @@
     } else if (typeof message.text === "string" && message.text.startsWith("__TS_ATTACHMENT_V1__:")) {
       try {
         const file = JSON.parse(message.text.slice("__TS_ATTACHMENT_V1__:".length));
-        const link = el("a", "", `📎 Download ${file.name || "attachment"}`);
-        link.href = `data:${file.type || "application/octet-stream"};base64,${file.data}`;
+        const mime = file.type || "application/octet-stream";
+        const dataUrl = `data:${mime};base64,${file.data}`;
+        if (mime.startsWith("audio/")) {
+          const player = el("audio", "voice-note");
+          player.controls = true;
+          player.preload = "metadata";
+          player.src = dataUrl;
+          player.setAttribute("aria-label", "Voice message");
+          bubble.append(player);
+        }
+        const link = el("a", "attachment-download", `📎 Download ${file.name || "attachment"}`);
+        link.href = dataUrl;
         link.download = file.name || "attachment";
         link.rel = "noopener";
         bubble.append(link);
