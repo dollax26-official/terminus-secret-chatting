@@ -9,6 +9,10 @@ required_css = (
     "#connectView.connect", "#chatView .messages", "#chatView .rail",
     "#chatView .rooms", "overflow-y: auto;", "-webkit-overflow-scrolling: touch;",
     "touch-action: pan-y;", ".messages > * {", "flex-shrink: 0;",
+    "#chatView .rail > :not(.rooms):not(.saved-host-list)",
+    "#chatView .rail .rooms", "#chatView .rail .saved-host-list",
+    "max-height: clamp(", "overscroll-behavior-y: auto;",
+    "#chatView .stage {", "flex: 1 1 0px;", "height: 0;",
 )
 required_host = (
     "self.canvas = tk.Canvas",
@@ -20,4 +24,8 @@ missing = [f"styles.css missing {item!r}" for item in required_css if item not i
 missing += [f"settings_app.py missing {item!r}" for item in required_host if item not in HOST_UI]
 if missing:
     raise SystemExit("\n".join(missing))
+# Confirm the final round-4 overrides exist after earlier legacy rules.
+assert CSS.rfind("#chatView .rail {") > CSS.find(".rail {")
+assert CSS.rfind("#chatView .messages {") > CSS.find(".messages {")
+assert CSS.rfind("#chatView .stage {") > CSS.find(".stage {")
 print("UI scroll regression checks passed.")
