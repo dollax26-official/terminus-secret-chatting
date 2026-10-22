@@ -274,6 +274,12 @@ def init_db(passphrase: str) -> None:
                 joined_at TEXT NOT NULL,
                 PRIMARY KEY(room_id, account_id)
             );
+            CREATE TABLE IF NOT EXISTS typing_presence (
+                room_id TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+                account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                expires_at INTEGER NOT NULL,
+                PRIMARY KEY(room_id, account_id)
+            );
             CREATE TABLE IF NOT EXISTS messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 room_id TEXT NOT NULL REFERENCES rooms(id),
@@ -518,6 +524,30 @@ class Handler(BaseHTTPRequestHandler):
                     ),
                 },
             )
+            return
+
+        if path == "/api/typing":
+            device = self._require_device()
+            if device is None:
+                return
+            room_id = (query.get("room_id") or [""])[0]
+            with db() as conn:
+                allowed = conn.execute(
+                    """SELECT 1 FROM rooms r WHERE r.id=? AND (
+                         (r.kind='channel' AND EXISTS (SELECT 1 FROM server_members sm WHERE sm.server_id=r.server_id AND sm.account_id=?))
+                         OR (r.kind='dm' AND EXISTS (SELECT 1 FROM room_members rm WHERE rm.room_id=r.id AND rm.account_id=?))
+                       )""",
+                    (room_id, device["account_id"], device["account_id"]),
+                ).fetchone()
+                if not allowed:
+                    self._error(404, "channel not found or you are not a member")
+                    return
+                users = conn.execute(
+                    """SELECT a.username FROM typing_presence tp JOIN accounts a ON a.id=tp.account_id
+                       WHERE tp.room_id=? AND tp.account_id<>? AND tp.expires_at>? ORDER BY tp.expires_at DESC""",
+                    (room_id, device["account_id"], int(time.time())),
+                ).fetchall()
+            self._send_json(200, {"users": [row["username"] for row in users]})
             return
 
         if path == "/api/sync":
@@ -769,6 +799,36 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/pair":
             self._pair(body)
+            return
+
+        if path == "/api/typing":
+            device = self._require_device()
+            if device is None:
+                return
+            room_id = str(body.get("room_id") or "").strip()
+            typing = bool(body.get("typing"))
+            with db() as conn:
+                allowed = conn.execute(
+                    """SELECT 1 FROM rooms r WHERE r.id=? AND (
+                         (r.kind='channel' AND EXISTS (SELECT 1 FROM server_members sm WHERE sm.server_id=r.server_id AND sm.account_id=?))
+                         OR (r.kind='dm' AND EXISTS (SELECT 1 FROM room_members rm WHERE rm.room_id=r.id AND rm.account_id=?))
+                       )""",
+                    (room_id, device["account_id"], device["account_id"]),
+                ).fetchone()
+                if not allowed:
+                    self._error(404, "channel not found or you are not a member")
+                    return
+                conn.execute("DELETE FROM typing_presence WHERE expires_at<=?", (int(time.time()),))
+                if typing:
+                    conn.execute(
+                        """INSERT INTO typing_presence(room_id,account_id,expires_at) VALUES(?,?,?)
+                           ON CONFLICT(room_id,account_id) DO UPDATE SET expires_at=excluded.expires_at""",
+                        (room_id, device["account_id"], int(time.time()) + 5),
+                    )
+                else:
+                    conn.execute("DELETE FROM typing_presence WHERE room_id=? AND account_id=?",
+                                 (room_id, device["account_id"]))
+            self._send_json(200, {"ok": True})
             return
 
         if path == "/api/vault/check":
