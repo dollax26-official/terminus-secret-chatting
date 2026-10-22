@@ -335,6 +335,14 @@ def init_db(passphrase: str) -> None:
                 ("srv_default", "My Server", "Migrated default server", secrets.token_urlsafe(9), now_iso()),
             )
         conn.execute("UPDATE rooms SET server_id='srv_default', kind='text' WHERE id='general' AND server_id='srv_default'")
+        legacy_owner = conn.execute("SELECT id FROM accounts ORDER BY created_at ASC LIMIT 1").fetchone()
+        default_server = conn.execute("SELECT owner_account_id FROM servers WHERE id='srv_default'").fetchone()
+        if legacy_owner and default_server and default_server["owner_account_id"] is None:
+            conn.execute("UPDATE servers SET owner_account_id=? WHERE id='srv_default'", (legacy_owner["id"],))
+            conn.execute(
+                "INSERT OR IGNORE INTO server_members(server_id,account_id,role,joined_at) VALUES('srv_default',?,'owner',?)",
+                (legacy_owner["id"], now_iso()),
+            )
         room_columns = [row["name"] for row in conn.execute("PRAGMA table_info(rooms)")]
         if "description" not in room_columns:
             conn.execute("ALTER TABLE rooms ADD COLUMN description TEXT NOT NULL DEFAULT ''")
@@ -882,11 +890,6 @@ class Handler(BaseHTTPRequestHandler):
             device = self._require_device()
             if device is None:
                 return
-            if ROOM_ADMIN_KEY:
-                supplied_key = str(body.get("admin_key") or "")
-                if not hmac.compare_digest(supplied_key, ROOM_ADMIN_KEY):
-                    self._error(403, "host group-management key required or invalid")
-                    return
             self._create_room(device, body)
             return
 
