@@ -579,13 +579,18 @@ class Handler(BaseHTTPRequestHandler):
         self._error(404, "not found")
 
     def _sync(self, device: sqlite3.Row, after: int, wait: int, updated_after: str = "", server_id: str = "") -> None:
-        if not server_id:
-            with db() as conn:
+        with db() as conn:
+            if server_id and not conn.execute(
+                "SELECT 1 FROM server_members WHERE server_id=? AND account_id=?",
+                (server_id, device["account_id"]),
+            ).fetchone():
+                server_id = ""
+            if not server_id:
                 membership = conn.execute(
                     "SELECT server_id FROM server_members WHERE account_id=? ORDER BY joined_at ASC LIMIT 1",
                     (device["account_id"],),
                 ).fetchone()
-            server_id = membership["server_id"] if membership else ""
+                server_id = membership["server_id"] if membership else ""
         deadline = time.monotonic() + wait
         while True:
             # Hold the condition lock while checking SQLite. The previous
@@ -1358,7 +1363,7 @@ class Handler(BaseHTTPRequestHandler):
                 )
         with MESSAGE_COND:
             MESSAGE_COND.notify_all()
-        self._send_json(200, {"id": dm_id, "name": ", ".join(display_names), "description": "Direct message",
+        self._send_json(200, {"id": dm_id, "name": " ↔ ".join(display_names), "description": "Direct message",
                               "created_at": now_iso(), "server_id": server_id, "kind": "dm"})
 
     def _change_server_role(self, body: dict) -> None:
@@ -1454,6 +1459,8 @@ class Handler(BaseHTTPRequestHandler):
                 "name": name,
                 "description": description,
                 "created_at": now_iso(),
+                "server_id": server_id,
+                "kind": "channel",
             },
         )
 
