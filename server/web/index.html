@@ -40,7 +40,25 @@
       <span class="pulse"></span><span id="hostBadgeText">Locating host…</span>
     </div>
 
-    <form id="connectForm" autocomplete="off" novalidate>
+    <section id="accountPanel" class="account-panel">
+      <h2 id="accountTitle">Sign in to this server</h2>
+      <p class="field-hint">Create an account on this server before pairing a device. Your username is unique to this server.</p>
+      <form id="accountForm" autocomplete="on" novalidate>
+        <label class="field">
+          <span>Username</span>
+          <input id="accountUsername" name="username" maxlength="24" minlength="3" autocomplete="username" placeholder="your_username" required>
+        </label>
+        <label class="field">
+          <span>Password</span>
+          <input id="accountPassword" name="password" type="password" minlength="10" maxlength="256" autocomplete="current-password" required>
+        </label>
+        <button id="accountBtn" class="primary" type="submit">Sign in</button>
+        <p id="accountError" class="form-error" role="alert"></p>
+      </form>
+      <button id="accountModeBtn" class="linkish" type="button">Need an account? Create one</button>
+    </section>
+
+    <form id="connectForm" autocomplete="off" novalidate hidden>
       <div id="pairFields">
         <div id="authSwitch" class="auth-switch" role="tablist" aria-label="Enrollment method">
           <button type="button" class="active" data-auth="code" role="tab" aria-selected="true">Pairing code</button>
@@ -145,6 +163,7 @@
       </div>
       <button id="infoBtn" class="ghost-btn">Host &amp; devices</button>
       <button id="settingsBtn" class="ghost-btn">Appearance settings</button>
+      <button id="switchAccountBtn" class="ghost-btn">Switch account / sign out</button>
     </footer>
   </aside>
 
