@@ -940,3 +940,10 @@ button:focus:not(:focus-visible) { outline: none; }
 #serverSelect { width: 100%; min-width: 0; padding: 10px 11px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); color: var(--text); }
 .server-actions { display: flex; gap: 5px; flex-wrap: wrap; }
 .server-actions .ghost-btn { flex: 1; min-width: 0; padding: 7px 8px; font-size: 11px; }
+
+
+/* Local search across decrypted message history on this device */
+.message-search-wrap { flex: 1; max-width: 260px; min-width: 110px; }
+.message-search-wrap input { width: 100%; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); color: var(--text); font-size: 12px; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+@media (max-width: 600px) { .message-search-wrap { max-width: 145px; } }
