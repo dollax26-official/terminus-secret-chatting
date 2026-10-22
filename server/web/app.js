@@ -1911,17 +1911,21 @@
   }
 
   /* -------------------------------------------------------------- calls/media */
-  function requireDirectMessage() {
-    const room = currentRoom();
-    if (!room || room.kind !== "dm") {
-      toast("Calls and voice messages are available in direct messages.", "error");
-      return false;
-    }
+  function requireUnlockedSession() {
     if (!state.key || !state.token || !state.accountToken) {
       toast("Sign in, pair this device, and unlock the vault first.", "error");
       return false;
     }
     return true;
+  }
+
+  function requireDirectMessage() {
+    const room = currentRoom();
+    if (!room || room.kind !== "dm") {
+      toast("Voice and video calls are available in direct messages.", "error");
+      return false;
+    }
+    return requireUnlockedSession();
   }
 
   async function sendCallSignal(roomId, kind, data = {}) {
@@ -2152,7 +2156,7 @@
   }
 
   async function toggleVoiceRecording() {
-    if (!requireDirectMessage()) return;
+    if (!requireUnlockedSession()) return;
     if (state.voiceRecorder && state.voiceRecorder.state === "recording") {
       state.voiceRecorder.stop();
       return;
