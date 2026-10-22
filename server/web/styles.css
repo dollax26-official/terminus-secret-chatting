@@ -913,3 +913,12 @@ button:focus:not(:focus-visible) { outline: none; }
 /* Appearance controls */
 #backgroundColorInput, #accentColorInput { min-height: 48px; width: 100%; padding: 4px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
 #settingsBtn { margin-top: 8px; }
+
+
+/* Server account gate */
+.account-panel { margin-top: 26px; padding: 22px; border: 1px solid var(--line); border-radius: 16px; background: rgba(13, 20, 31, .78); }
+.account-panel h2 { margin: 0 0 8px; font-size: 22px; letter-spacing: -.03em; }
+.account-panel form { display: grid; gap: 14px; }
+.account-panel .field-hint { margin: 0 0 16px; }
+.account-panel > .linkish { margin-top: 12px; }
+#connectForm[hidden], #accountPanel[hidden] { display: none !important; }
