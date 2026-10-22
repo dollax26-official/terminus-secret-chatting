@@ -786,6 +786,7 @@
         deleted: Boolean(row.deleted),
         pinned: Boolean(row.pinned),
         reply_to_id: row.reply_to_id ?? null,
+        reactions: row.reactions || [],
       });
     }
 
@@ -1020,7 +1021,44 @@
       bubble.title = "Not sent — tap to retry";
       bubble.addEventListener("click", () => retryMessage(message));
     }
+    if (message.reply_to_id) {
+      const replied = state.messages.find((m) => String(m.id) === String(message.reply_to_id));
+      body.append(el("div", "reply-reference", replied ? `↳ ${replied.device_name || "User"}: ${(replied.text || "Message").slice(0, 90)}` : "↳ Reply to a previous message"));
+    }
     body.append(bubble);
+
+    if (message.deleted) {
+      bubble.classList.add("deleted-bubble");
+    } else if (Number.isFinite(Number(message.id)) && !String(message.id).startsWith("tmp-")) {
+      const actions = el("div", "message-actions");
+      const actionButton = (label, title, handler) => {
+        const button = el("button", "message-action", label);
+        button.type = "button";
+        button.title = title;
+        button.addEventListener("click", handler);
+        actions.append(button);
+      };
+      actionButton("↩", "Reply", () => {
+        state.replyTo = message.id;
+        ui.input.placeholder = `Reply to ${message.device_name || "user"} in #${currentRoom().name || "general"}`;
+        ui.input.focus();
+      });
+      actionButton("☺", "React", () => reactToMessage(message));
+      actionButton(message.pinned ? "📌" : "⌁", message.pinned ? "Unpin message" : "Pin message", () => togglePin(message));
+      if (mine) {
+        actionButton("Edit", "Edit message", () => editMessage(message));
+        actionButton("Delete", "Delete message", () => deleteMessage(message));
+      }
+      body.append(actions);
+      if (message.reactions && message.reactions.length) {
+        const reactionBar = el("div", "reaction-bar");
+        for (const reaction of message.reactions) {
+          const chip = el("span", "reaction-chip", `${reaction.emoji} ${reaction.count}`);
+          reactionBar.append(chip);
+        }
+        body.append(reactionBar);
+      }
+    }
     row.append(body);
     ui.messages.append(row);
 
@@ -1033,6 +1071,84 @@
     } else if (options.track !== false) {
       state.newBelow += 1;
       updateJump();
+    }
+  }
+
+  async function reactToMessage(message) {
+    const emoji = window.prompt("Reaction emoji (for example 👍 ❤️ 😂 🎉):", "👍");
+    if (!emoji || !emoji.trim()) return;
+    try {
+      const res = await api("/api/messages/react", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message_id: message.id, emoji: emoji.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not add reaction.");
+      message.reactions = data.reactions || [];
+      renderMessages();
+    } catch (err) {
+      toast(err.message || "Could not add reaction.", "error");
+    }
+  }
+
+  async function editMessage(message) {
+    const next = window.prompt("Edit message:", message.text || "");
+    if (next === null || next === message.text) return;
+    if (!next.trim()) { toast("Message cannot be empty.", "error"); return; }
+    try {
+      const sealed = await encryptText(next, message.room_id);
+      const res = await api("/api/messages/edit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message_id: message.id, nonce: sealed.nonce, ciphertext: sealed.ciphertext }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not edit message.");
+      message.text = next;
+      message.edited_at = new Date().toISOString();
+      renderMessages();
+      toast("Message edited.");
+    } catch (err) {
+      toast(err.message || "Could not edit message.", "error");
+    }
+  }
+
+  async function deleteMessage(message) {
+    if (!window.confirm("Delete this message for everyone?")) return;
+    try {
+      const res = await api("/api/messages/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message_id: message.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not delete message.");
+      message.deleted = true;
+      message.text = "Message deleted";
+      message.reactions = [];
+      renderMessages();
+      toast("Message deleted.");
+    } catch (err) {
+      toast(err.message || "Could not delete message.", "error");
+    }
+  }
+
+  async function togglePin(message) {
+    const pinned = !message.pinned;
+    try {
+      const res = await api("/api/messages/pin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message_id: message.id, pinned }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not update pin.");
+      message.pinned = pinned;
+      renderMessages();
+      toast(pinned ? "Message pinned." : "Message unpinned.");
+    } catch (err) {
+      toast(err.message || "Could not update pin.", "error");
     }
   }
 
@@ -1183,12 +1299,15 @@
   function submitComposer() {
     const text = ui.input.value.replace(/\s+$/, "");
     if (!text.trim()) return;
+    const replyTo = state.replyTo;
+    state.replyTo = null;
+    ui.input.placeholder = `Message #${currentRoom().name || "general"}`;
     ui.input.value = "";
     autoGrow();
-    sendText(text);
+    sendText(text, replyTo);
   }
 
-  async function sendText(text) {
+  async function sendText(text, replyToId = null) {
     if (!state.key) {
       toast("Vault is locked.", "error");
       return;
@@ -1202,6 +1321,9 @@
       device_name: state.deviceName,
       created_at: new Date().toISOString(),
       text,
+      reply_to_id: replyToId,
+      reactions: [],
+      pinned: false,
       pending: true,
       failed: false,
     };
@@ -1224,6 +1346,7 @@
           client_msg_id: message.client_msg_id,
           nonce: sealed.nonce,
           ciphertext: sealed.ciphertext,
+          reply_to_id: message.reply_to_id,
         }),
       });
       if (!res.ok) throw new Error(`send failed (${res.status})`);
