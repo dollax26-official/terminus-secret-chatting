@@ -28,7 +28,7 @@ BASE = f"https://127.0.0.1:{PORT}"
 CTX = ssl._create_unverified_context()
 
 
-def request(path, method="GET", token=None, payload=None):
+def request(path, method="GET", token=None, payload=None, account_token=None):
     data = None
     headers = {"Accept": "application/json"}
     if payload is not None:
@@ -36,6 +36,8 @@ def request(path, method="GET", token=None, payload=None):
         headers["Content-Type"] = "application/json"
     if token:
         headers["Authorization"] = f"Bearer {token}"
+    if account_token:
+        headers["X-Account-Token"] = account_token
     req = urllib.request.Request(BASE + path, data=data, headers=headers, method=method)
     with urllib.request.urlopen(req, context=CTX, timeout=30) as response:
         return response.status, dict(response.headers), response.read()
@@ -92,20 +94,40 @@ def main():
         except urllib.error.HTTPError as exc:
             assert exc.code == 401, exc.code
 
+        # Pairing now requires a server account session first.
+        _, _, body = request(
+            "/api/accounts/register",
+            method="POST",
+            payload={"username": "smoke_test_user", "password": "smoke-test-password-123"},
+        )
+        account_token = json.loads(body)["account_token"]
+        assert account_token.startswith("ta_")
+
         try:
-            request("/api/pair", method="POST", payload={"code": "0000-0000", "device_name": "bad"})
+            request(
+                "/api/pair",
+                method="POST",
+                payload={"code": "0000-0000", "device_name": "bad"},
+                account_token=account_token,
+            )
             raise AssertionError("wrong pairing code was accepted")
         except urllib.error.HTTPError as exc:
             assert exc.code == 403, exc.code
 
         _, _, body = request(
-            "/api/pair", method="POST", payload={"code": code, "device_name": "Windows desk"}
+            "/api/pair",
+            method="POST",
+            payload={"code": code, "device_name": "Windows desk"},
+            account_token=account_token,
         )
         device_a = json.loads(body)
         assert device_a["token"].startswith("ts_")
 
         _, _, body = request(
-            "/api/pair", method="POST", payload={"code": code, "device_name": "Android phone"}
+            "/api/pair",
+            method="POST",
+            payload={"code": code, "device_name": "Android phone"},
+            account_token=account_token,
         )
         device_b = json.loads(body)
         assert device_b["device_id"] != device_a["device_id"]
