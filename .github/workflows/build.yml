@@ -108,7 +108,14 @@ jobs:
           This APK was signed with a temporary CI key because stable signing secrets were not configured.
           To install it over an existing copy signed with another key, Android will require uninstalling the old app first.
           Configure repository secrets TERMINUS_KEYSTORE_BASE64 and TERMINUS_APK_SIGNING_PASSWORD to preserve the same signing identity across builds.
-          "@ | Set-Content "android-app/SIGNING-NOTE.txt"
+          "@
+            $note = @"
+          CI signing note:
+          This APK was signed with a temporary CI key because stable signing secrets were not configured.
+          To install it over an existing copy signed with another key, Android will require uninstalling the old app first.
+          Configure repository secrets TERMINUS_KEYSTORE_BASE64 and TERMINUS_APK_SIGNING_PASSWORD to preserve the same signing identity across builds.
+          "@
+            $note | Set-Content "android-app/SIGNING-NOTE.txt"
           } else {
             "This APK uses the configured persistent signing key." | Set-Content "android-app/SIGNING-NOTE.txt"
           }
