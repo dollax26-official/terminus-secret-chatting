@@ -497,7 +497,8 @@ class Handler(BaseHTTPRequestHandler):
                 wait = min(max(int((query.get("wait") or ["0"])[0]), 0), 25)
             except ValueError:
                 wait = 0
-            self._sync(device, max(after, 0), wait)
+            updated_after = (query.get("updated_after") or [""])[0][:40]
+            self._sync(device, max(after, 0), wait, updated_after)
             return
 
         if path.startswith("/api/"):
@@ -511,7 +512,7 @@ class Handler(BaseHTTPRequestHandler):
 
         self._error(404, "not found")
 
-    def _sync(self, device: sqlite3.Row, after: int, wait: int) -> None:
+    def _sync(self, device: sqlite3.Row, after: int, wait: int, updated_after: str = "") -> None:
         deadline = time.monotonic() + wait
         while True:
             # Hold the condition lock while checking SQLite. The previous
@@ -529,9 +530,11 @@ class Handler(BaseHTTPRequestHandler):
                                COALESCE(a.username, d.name) AS device_name
                         FROM messages m JOIN devices d ON d.id = m.device_id
                         LEFT JOIN accounts a ON a.id = d.account_id
-                        WHERE m.id > ? ORDER BY m.id ASC LIMIT 200
+                        WHERE m.id > ? OR (m.edited_at IS NOT NULL AND m.edited_at > ?)
+                              OR (m.deleted_at IS NOT NULL AND m.deleted_at > ?)
+                         ORDER BY m.id ASC LIMIT 200
                         """,
-                        (after,),
+                        (after, updated_after, updated_after),
                     ).fetchall()
                     remaining = deadline - time.monotonic()
                     if rows or remaining <= 0 or wait == 0:
@@ -583,7 +586,7 @@ class Handler(BaseHTTPRequestHandler):
                                 for row in devices
                             ],
                             "you": device["id"],
-                            "last_id": rows[-1]["id"] if rows else after,
+                            "last_id": max([after] + [row["id"] for row in rows]),
                             "has_more": bool(more),
                             "server_time": now_iso(),
                             "room_admin_required": bool(ROOM_ADMIN_KEY),
