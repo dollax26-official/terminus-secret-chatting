@@ -1,4 +1,4 @@
-name: source-checks
+name: source-checks-and-builds
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   server-tests:
-    name: Server protocol tests (source only)
+    name: Server protocol tests
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,6 +24,103 @@ jobs:
         run: python tools/smoke_test.py
       - name: Compile host server
         run: python -m py_compile server/host.py
+
+  windows-app-build:
+    name: Build Windows portable EXE
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: windows-app/electron/package-lock.json
+      - name: Install Windows client dependencies
+        working-directory: windows-app/electron
+        run: npm ci --no-audit --no-fund
+      - name: Validate shared client JavaScript
+        run: node --check server/web/app.js
+      - name: Build portable Windows app
+        working-directory: windows-app/electron
+        run: npm run build
+      - name: Verify Windows artifact
+        shell: pwsh
+        run: |
+          $exe = "windows-app/electron/dist/TerminusSecrets.exe"
+          if (-not (Test-Path $exe)) { throw "Windows EXE was not produced: $exe" }
+          Get-FileHash $exe -Algorithm SHA256
+      - name: Upload Windows app
+        uses: actions/upload-artifact@v4
+        with:
+          name: TerminusSecrets-Windows
+          path: windows-app/electron/dist/TerminusSecrets.exe
+          if-no-files-found: error
+          retention-days: 14
+
+  android-app-build:
+    name: Build Android APK
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK platform and build tools
+        shell: pwsh
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+      - name: Configure APK signing
+        shell: pwsh
+        env:
+          TERMINUS_KEYSTORE_BASE64: ${{ secrets.TERMINUS_KEYSTORE_BASE64 }}
+          TERMINUS_APK_SIGNING_PASSWORD: ${{ secrets.TERMINUS_APK_SIGNING_PASSWORD }}
+        run: |
+          $keystore = Join-Path $env:GITHUB_WORKSPACE "android-app/keystore/terminus-release.p12"
+          if ($env:TERMINUS_KEYSTORE_BASE64 -and $env:TERMINUS_APK_SIGNING_PASSWORD) {
+            New-Item -ItemType Directory -Force -Path (Split-Path $keystore) | Out-Null
+            [IO.File]::WriteAllBytes($keystore, [Convert]::FromBase64String($env:TERMINUS_KEYSTORE_BASE64))
+            "TERMINUS_KEYSTORE_PATH=$keystore" >> $env:GITHUB_ENV
+            "TERMINUS_APK_SIGNING_PASSWORD=$env:TERMINUS_APK_SIGNING_PASSWORD" >> $env:GITHUB_ENV
+            "TERMINUS_APK_STABLE_SIGNING=true" >> $env:GITHUB_ENV
+          } else {
+            # A temporary key allows CI to validate and package the APK, but it
+            # cannot update an install signed with a different key.
+            "TERMINUS_APK_SIGNING_PASSWORD=Temporary-CI-Signing-2026!" >> $env:GITHUB_ENV
+            "TERMINUS_APK_STABLE_SIGNING=false" >> $env:GITHUB_ENV
+          }
+      - name: Build Android APK
+        shell: pwsh
+        run: ./android-app/build-apk.ps1
+      - name: Verify Android artifact and document signing
+        shell: pwsh
+        run: |
+          $apk = "android-app/TerminusSecrets.apk"
+          if (-not (Test-Path $apk)) { throw "Android APK was not produced: $apk" }
+          & "$env:ANDROID_HOME/build-tools/36.0.0/apksigner.bat" verify --print-certs $apk
+          Get-FileHash $apk -Algorithm SHA256
+          if ($env:TERMINUS_APK_STABLE_SIGNING -ne "true") {
+            @"
+          CI signing note:
+          This APK was signed with a temporary CI key because stable signing secrets were not configured.
+          To install it over an existing copy signed with another key, Android will require uninstalling the old app first.
+          Configure repository secrets TERMINUS_KEYSTORE_BASE64 and TERMINUS_APK_SIGNING_PASSWORD to preserve the same signing identity across builds.
+          "@ | Set-Content "android-app/SIGNING-NOTE.txt"
+          } else {
+            "This APK uses the configured persistent signing key." | Set-Content "android-app/SIGNING-NOTE.txt"
+          }
+      - name: Upload Android app
+        uses: actions/upload-artifact@v4
+        with:
+          name: TerminusSecrets-Android-APK
+          path: |
+            android-app/TerminusSecrets.apk
+            android-app/SIGNING-NOTE.txt
+          if-no-files-found: error
+          retention-days: 14
 
   windows-source-check:
     name: Windows client source check
@@ -41,6 +138,3 @@ jobs:
         run: node -e "const p=require('./package.json'); if(!p.main || !p.scripts || !p.scripts.start) process.exit(1); console.log(p.name, p.version)"
       - name: Validate shared web client JavaScript syntax
         run: node --check server/web/app.js
-
-# Deliberately does not build, upload, or attach APK/EXE files. Build locally with
-# android-app/build-apk.ps1 and windows-app/electron/build-exe.ps1.
