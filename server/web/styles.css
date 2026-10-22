@@ -998,3 +998,11 @@ button:focus:not(:focus-visible) { outline: none; }
 
 .voice-note { display:block; width:min(280px, 100%); min-width:190px; margin:6px 0; }
 .attachment-download { display:inline-block; font-size:12px; margin-top:4px; overflow-wrap:anywhere; }
+
+/* Saved host connections are separate from the logical chat servers below. */
+.host-list { max-height:150px; overflow:auto; padding:0 8px 8px; }
+.host-entry { display:flex; flex-direction:column; align-items:flex-start; width:100%; gap:2px; padding:7px 9px; border:1px solid transparent; border-radius:8px; background:transparent; text-align:left; min-width:0; }
+.host-entry:hover, .host-entry:focus-visible { border-color:var(--line); background:var(--panel-2); }
+.host-entry-name { max-width:100%; font-size:12px; font-weight:650; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.host-entry-url { display:block; width:100%; color:var(--faint); font:9px var(--mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.host-list-empty { margin:4px 8px 10px; color:var(--faint); font-size:10px; line-height:1.4; }
