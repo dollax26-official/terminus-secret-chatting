@@ -592,12 +592,12 @@ class Handler(BaseHTTPRequestHandler):
                               WHERE r.kind='text' AND sm.account_id=? AND (?='' OR r.server_id=?)
                               UNION
                               SELECT r.id FROM rooms r JOIN room_members rm ON rm.room_id=r.id
-                              WHERE r.kind='dm' AND rm.account_id=? AND ?=''
+                              WHERE r.kind='dm' AND rm.account_id=? AND (?='' OR r.kind='dm' OR r.server_id=?)
                           )
                          ORDER BY m.id ASC LIMIT 200
                         """,
                         (after, updated_after, updated_after, device["account_id"], server_id, server_id,
-                         device["account_id"], server_id),
+                         device["account_id"], server_id, server_id),
                     ).fetchall()
                     remaining = deadline - time.monotonic()
                     if rows or remaining <= 0 or wait == 0:
@@ -614,15 +614,22 @@ class Handler(BaseHTTPRequestHandler):
                                ) AND (?='' OR r.server_id=?))
                                OR (r.kind='dm' AND EXISTS (
                                    SELECT 1 FROM room_members rm WHERE rm.room_id=r.id AND rm.account_id=?
-                               ) AND ?='')
+                               ) AND (?='' OR r.kind='dm' OR r.server_id=?))
                                ORDER BY r.created_at ASC""",
                             (device["account_id"], device["account_id"], server_id, server_id,
-                             device["account_id"], server_id),
+                             device["account_id"], server_id, server_id),
                         ).fetchall()
                         servers = conn.execute(
                             """SELECT s.id, s.name, s.description, s.invite_code, sm.role
                                FROM servers s JOIN server_members sm ON sm.server_id=s.id
                                WHERE sm.account_id=? ORDER BY s.created_at ASC""",
+                            (device["account_id"],),
+                        ).fetchall()
+                        server_members = conn.execute(
+                            """SELECT sm.server_id, a.username, sm.role
+                               FROM server_members sm JOIN accounts a ON a.id=sm.account_id
+                               WHERE sm.server_id IN (SELECT server_id FROM server_members WHERE account_id=?)
+                               ORDER BY sm.server_id, a.username COLLATE NOCASE""",
                             (device["account_id"],),
                         ).fetchall()
                         devices = conn.execute(
@@ -665,6 +672,7 @@ class Handler(BaseHTTPRequestHandler):
                                 for row in rooms
                             ],
                             "servers": [dict(row) for row in servers],
+                            "server_members": [dict(row) for row in server_members],
                             "devices": [
                                 {
                                     "id": row["id"],
