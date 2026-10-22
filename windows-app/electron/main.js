@@ -57,6 +57,15 @@ function samePin(a, b) {
   return crypto.timingSafeEqual(left, right);
 }
 
+function requestHostname(targetUrl) {
+  // WHATWG URL.hostname keeps brackets around IPv6 literals, but Node's
+  // https.request({ hostname }) expects the bare IPv6 address.
+  const hostname = targetUrl.hostname;
+  return hostname.startsWith("[") && hostname.endsWith("]")
+    ? hostname.slice(1, -1)
+    : hostname;
+}
+
 function fingerprintOf(certificate) {
   if (!certificate || !certificate.raw) return "";
   return crypto.createHash("sha256").update(certificate.raw).digest("hex");
@@ -132,7 +141,7 @@ function probeHost(rawUrl) {
     const request = https.request(
       {
         protocol: "https:",
-        hostname: target.hostname,
+        hostname: requestHostname(target),
         port: target.port || 443,
         path: "/api/health",
         method: "GET",
@@ -199,7 +208,7 @@ function forward(request, response) {
 
   const upstream = https.request({
     protocol: "https:",
-    hostname: target.hostname,
+    hostname: requestHostname(target),
     port: target.port || 443,
     path: request.url,
     method: request.method,
