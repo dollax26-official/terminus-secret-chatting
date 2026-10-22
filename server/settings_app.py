@@ -114,16 +114,15 @@ class HostSettingsApp:
     def _build(self) -> None:
         shell = ttk.Frame(self.root)
         shell.pack(fill="both", expand=True)
-        canvas = tk.Canvas(shell, bg="#080d13", highlightthickness=0)
-        scrollbar = ttk.Scrollbar(shell, orient="vertical", command=canvas.yview)
-        canvas.configure(yscrollcommand=scrollbar.set)
-        scrollbar.pack(side="right", fill="y")
-        canvas.pack(side="left", fill="both", expand=True)
-        outer = ttk.Frame(canvas, padding=24)
-        win = canvas.create_window((0, 0), window=outer, anchor="nw")
-        outer.bind("<Configure>", lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(win, width=e.width))
-        canvas.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(int(-e.delta / 120), "units"))
+        self.canvas = tk.Canvas(shell, bg="#080d13", highlightthickness=0)
+        self.scrollbar = ttk.Scrollbar(shell, orient="vertical", command=self.canvas.yview)
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+        self.scrollbar.pack(side="right", fill="y")
+        self.canvas.pack(side="left", fill="both", expand=True)
+        outer = ttk.Frame(self.canvas, padding=24)
+        self._content_window = self.canvas.create_window((0, 0), window=outer, anchor="nw")
+        outer.bind("<Configure>", self._update_scroll_region)
+        self.canvas.bind("<Configure>", self._resize_scroll_content)
         ttk.Label(outer, text="TERMINUS  /  HOST MANAGER", style="Muted.TLabel").pack(anchor="w")
         ttk.Label(outer, text="Configure your private server", style="Title.TLabel").pack(anchor="w", pady=(5, 3))
         ttk.Label(outer, text="Choose the capabilities clients can see. Your vault phrase and pairing code are kept in the data folder.", wraplength=640, style="Muted.TLabel").pack(anchor="w", pady=(0, 18))
@@ -198,6 +197,36 @@ class HostSettingsApp:
         self.stop_button = ttk.Button(footer, text="Stop server", command=self.stop_server, state="disabled")
         self.stop_button.pack(side="right", padx=(0, 8))
         ttk.Label(outer, text=f"Settings: {CONFIG}", style="Muted.TLabel", wraplength=650).pack(anchor="w", pady=(14, 0))
+        self._bind_scroll_events(outer)
+        for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            self.root.bind_all(sequence, self._on_mousewheel, add="+")
+
+    def _update_scroll_region(self, _event=None) -> None:
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+
+    def _resize_scroll_content(self, event) -> None:
+        self.canvas.itemconfigure(self._content_window, width=event.width)
+
+    def _on_mousewheel(self, event):
+        number = getattr(event, "num", None)
+        if number == 4:
+            units = -3
+        elif number == 5:
+            units = 3
+        else:
+            delta = getattr(event, "delta", 0)
+            if not delta:
+                return "break"
+            steps = max(1, int(abs(delta) / 120))
+            units = -3 * steps if delta > 0 else 3 * steps
+        self.canvas.yview_scroll(units, "units")
+        return "break"
+
+    def _bind_scroll_events(self, widget) -> None:
+        for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            widget.bind(sequence, self._on_mousewheel, add="+")
+        for child in widget.winfo_children():
+            self._bind_scroll_events(child)
 
     def _copy_public_text(self, value: str) -> None:
         value = (value or "").strip()
