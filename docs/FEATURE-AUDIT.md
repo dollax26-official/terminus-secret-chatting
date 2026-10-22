@@ -12,6 +12,7 @@ This document separates features present in the shared client from features that
 - Local loaded-history search, typing indicators, unread indicators, mentions/notifications.
 - Encrypted small-file attachments and short encrypted voice notes, capped at 40 KB.
 - Experimental one-to-one WebRTC voice/video calls and screen sharing, with authenticated signaling and microphone/camera permissions.
+- Resource-conscious media defaults: camera calls request 640×360 at about 20 fps; screen sharing requests up to 1280×720 at about 15 fps. These are requests to the browser, not a hard process-memory cap.
 - Shared UI served by the host, so the Windows Electron and Android WebView clients use the same web features after the host source is updated.
 - Protocol smoke tests cover authentication, duplicate usernames, encrypted messages, DMs/roles, call signaling, and stable pairing credentials across host restarts.
 
