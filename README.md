@@ -31,7 +31,7 @@ Terminus Secrets gives you a Windows desktop client and an Android client that t
 - **Servers and channels.** Create servers, invite members, manage owner/admin/member roles, and organize public or private text channels. Server/channel names and membership are host-visible metadata; message contents are not.
 - **Every device is revocable.** Pairing creates a per-device bearer token; revoke one device without touching the others.
 - **The history is yours.** All chats live in `server/data/terminus.db` on this laptop. Copy that file and you have a backup.
-- **Same chat, different networks.** Authentication is token-based, so changing Wi-Fi or public IP does not log you out. Reachability is handled separately with Tailscale or a tunnel.
+- **Same chat, different networks.** Authentication is token-based, so changing Wi-Fi or public IP does not log you out. Remote access can use direct public IPv6 when both networks support IPv6 and inbound traffic is allowed; Tailscale or a tunnel are alternatives.
 
 ---
 
@@ -194,6 +194,20 @@ Each server has an owner, admins, and members. Only the owner can promote or dem
 ## Remote access from another network
 
 A laptop behind a home router is not reachable from the public internet by default. Choose one of these:
+
+### Direct public IPv6 (no Tailscale or tunnel)
+
+If the laptop has a **global IPv6 address** and the remote device also has IPv6 connectivity, clients can connect directly without Tailscale or a tunnel. The host binds to IPv6 and supports dual-stack sockets. On Windows, allow inbound TCP port 8443 in Windows Firewall and check the router/mobile provider's IPv6 inbound policy.
+
+Find the laptop's preferred global IPv6 address in `ipconfig` (not a `fe80::` link-local address). Use square brackets around the IPv6 literal in the URL:
+
+```text
+https://[YOUR_GLOBAL_IPV6]:8443/app/
+```
+
+For example, the host health endpoint is `https://[YOUR_GLOBAL_IPV6]:8443/api/health`. Test from a genuinely external network. The outbound IPv6 reported by `curl.exe -6 https://api64.ipify.org` does not by itself prove inbound reachability. Mobile providers may block inbound traffic, and temporary IPv6 addresses can change. If the address changes, update the host URL on the clients.
+
+See [the Windows IPv6/HTTPS guide](docs/WINDOWS-IPV6-HTTPS-GUIDE.md) for the exact checks and firewall commands.
 
 ### Recommended: Tailscale
 
