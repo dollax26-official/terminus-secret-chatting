@@ -426,3 +426,13 @@ The Windows Electron client and Android WebView client both load the shared inte
 ### Group administration status
 
 Server owner/admin permissions are checked by the host for channel creation and management. Private-channel membership is enforced by the host when listing channels and syncing messages; server owners/admins can access private channels for moderation. Deleting a channel permanently deletes its stored messages. The `general` channel is protected.
+
+
+## Feature and platform notes
+
+- Accounts are unique per host (case-insensitive usernames); registration rejects duplicate names. Account credentials are not reused between different hosts.
+- Saved host entries store only the host address. Reconnecting asks the user to sign in, enter the host pairing code when pairing a new device, and unlock the vault with the vault phrase; credentials are not saved in the host list.
+- The vault phrase and pairing code are stored under the host's persistent `server/data/` directory and remain stable across restarts/network changes as long as that data directory is preserved. A network change can still change the public IPv6 address; without a stable DNS name or discovery/relay service, clients may need the updated address.
+- Direct messages, group DMs, text channels, reactions, replies, pins, editing/deleting messages, voice notes, and one-to-one audio/video calls are implemented in the shared web client. Call signaling is encrypted by the vault in this build; voice/video media uses WebRTC's transport encryption by browser default. Screen sharing depends on browser/Electron support and user permission; Android WebView may not expose screen capture on every device.
+- This is not yet feature-parity with Discord: group voice calls, push-to-talk, server discovery, robust presence/offline delivery, and reliable public-address discovery across changing mobile networks are not guaranteed.
+- RAM usage depends on active calls, video resolution, browser engine, and other running applications. The project does not enforce a hard 4–5 GB process limit; treat any estimate as a target, not a measured guarantee.
