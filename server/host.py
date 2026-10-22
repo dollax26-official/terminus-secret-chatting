@@ -327,6 +327,14 @@ def init_db(passphrase: str) -> None:
                 "INSERT INTO rooms(id, name, created_at) VALUES('general','general',?)",
                 (now_iso(),),
             )
+        # Migrate older single-room installations into a real server that the
+        # first account can claim. This keeps existing history reachable.
+        if not conn.execute("SELECT 1 FROM servers WHERE id='srv_default'").fetchone():
+            conn.execute(
+                "INSERT INTO servers(id,name,description,invite_code,owner_account_id,created_at) VALUES(?,?,?,?,NULL,?)",
+                ("srv_default", "My Server", "Migrated default server", secrets.token_urlsafe(9), now_iso()),
+            )
+        conn.execute("UPDATE rooms SET server_id='srv_default', kind='text' WHERE id='general' AND server_id='srv_default'")
         room_columns = [row["name"] for row in conn.execute("PRAGMA table_info(rooms)")]
         if "description" not in room_columns:
             conn.execute("ALTER TABLE rooms ADD COLUMN description TEXT NOT NULL DEFAULT ''")
@@ -817,18 +825,28 @@ class Handler(BaseHTTPRequestHandler):
             device = self._require_device()
             if device is None:
                 return
-            if not ROOM_ADMIN_KEY:
-                self._error(403, "configure TERMINUS_ROOM_ADMIN_KEY to enable group rename/delete")
-                return
-            supplied_key = str(body.get("admin_key") or "")
-            if not hmac.compare_digest(supplied_key, ROOM_ADMIN_KEY):
-                self._error(403, "host group-management key required or invalid")
-                return
             action = str(body.get("action") or "").strip().lower()
             room_id = str(body.get("room_id") or "").strip()
-            if not room_id or room_id == "general":
-                self._error(400, "a non-general room_id is required")
+            if not room_id:
+                self._error(400, "room_id is required")
                 return
+            with db() as conn:
+                room_check = conn.execute(
+                    "SELECT server_id, name, kind FROM rooms WHERE id=?", (room_id,)
+                ).fetchone()
+                if room_check is None or room_check["kind"] != "text":
+                    self._error(404, "channel not found")
+                    return
+                if room_check["name"].casefold() == "general":
+                    self._error(403, "the general channel cannot be renamed or deleted")
+                    return
+                member = conn.execute(
+                    "SELECT role FROM server_members WHERE server_id=? AND account_id=?",
+                    (room_check["server_id"], device["account_id"]),
+                ).fetchone()
+                if member is None or member["role"] not in ("owner", "admin"):
+                    self._error(403, "only server owners and admins can manage channels")
+                    return
             if action == "rename":
                 name = " ".join(str(body.get("name") or "").split())[:32]
                 description = " ".join(str(body.get("description") or "").split())[:120]
