@@ -38,6 +38,8 @@ node_modules/
 .DS_Store
 Thumbs.db
 
-# Keep the release folder (prebuilt APK/EXE) intentionally
-!release/
-!release/**
+# Generated binaries are built locally or uploaded as CI artifacts; do not commit them.
+android-app/*.apk
+windows-app/*.exe
+release/*.apk
+release/*.exe

@@ -64,6 +64,7 @@
 
   <h1>Connect this desk to your host.</h1>
   <p class="lede">Enter the address of the laptop running <span style="font-family:var(--mono);font-size:12.5px">host.py</span>.
+     For direct IPv6 access without Tailscale, use <span style="font-family:var(--mono);font-size:12px">https://[your-global-ipv6]:8443</span> and keep the square brackets.
      This app shows the host certificate fingerprint and remembers only that exact identity.</p>
 
   <div class="card">
@@ -107,6 +108,7 @@
       const data = await res.json();
       if (data.configured) {
         $('url').value = data.server_url;
+        localStorage.setItem('ts.activeHost', data.server_url);
         $('current').style.display = 'flex';
         $('currentName').textContent = data.server_name || data.server_url;
         $('trustBtn').textContent = 'Open channel';
@@ -114,6 +116,19 @@
         probed = {url: data.server_url, fingerprint: data.fingerprint, server_name: data.server_name};
       }
     } catch (err) { /* first run */ }
+    const params = new URLSearchParams(location.search);
+    const requestedHost = params.get('host');
+    if (requestedHost) {
+      localStorage.setItem('ts.activeHost', requestedHost);
+      $('url').value = requestedHost;
+      $('current').style.display = 'none';
+      $('trustBtn').textContent = 'Trust & open';
+      $('trustBtn').disabled = true;
+      probed = null;
+      const hosts = params.get('ts_hosts');
+      if (hosts) localStorage.setItem('ts.hosts', hosts);
+      if (params.get('ts_force_pair') === '1') localStorage.setItem('ts.forcePair', '1');
+    }
   }
 
   async function probe() {
@@ -154,6 +169,7 @@
       });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || 'Could not save the host.');
+      localStorage.setItem('ts.activeHost', probed.url);
       localStorage.removeItem('ts.token');
       localStorage.removeItem('ts.device');
       location.href = '/app/';

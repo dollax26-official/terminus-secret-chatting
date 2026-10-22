@@ -40,7 +40,25 @@
       <span class="pulse"></span><span id="hostBadgeText">Locating host…</span>
     </div>
 
-    <form id="connectForm" autocomplete="off" novalidate>
+    <section id="accountPanel" class="account-panel">
+      <h2 id="accountTitle">Sign in to this server</h2>
+      <p class="field-hint">Create an account on this server before pairing a device. Your username is unique to this server.</p>
+      <form id="accountForm" autocomplete="on" novalidate>
+        <label class="field">
+          <span>Username</span>
+          <input id="accountUsername" name="username" maxlength="24" minlength="3" autocomplete="username" placeholder="your_username" required>
+        </label>
+        <label class="field">
+          <span>Password</span>
+          <input id="accountPassword" name="password" type="password" minlength="10" maxlength="256" autocomplete="current-password" required>
+        </label>
+        <button id="accountBtn" class="primary" type="submit">Sign in</button>
+        <p id="accountError" class="form-error" role="alert"></p>
+      </form>
+      <button id="accountModeBtn" class="linkish" type="button">Need an account? Create one</button>
+    </section>
+
+    <form id="connectForm" autocomplete="off" novalidate hidden>
       <div id="pairFields">
         <div id="authSwitch" class="auth-switch" role="tablist" aria-label="Enrollment method">
           <button type="button" class="active" data-auth="code" role="tab" aria-selected="true">Pairing code</button>
@@ -129,11 +147,31 @@
       <span class="live-dot" id="railLive" title="Connected"></span>
     </header>
 
-    <div class="rail-head">
-      <span class="eyebrow">GROUPS</span>
-      <button id="newRoomBtn" class="icon-btn" title="New group" aria-label="New group">+</button>
+    <div class="rail-head host-head">
+      <span class="eyebrow">HOST CONNECTIONS</span>
+      <button id="addHostBtn" class="icon-btn" title="Add a host by IPv6/HTTPS address" aria-label="Add host connection">+</button>
     </div>
-    <nav id="roomList" class="rooms" aria-label="Groups"></nav>
+    <nav id="hostList" class="rooms host-list" aria-label="Saved host connections"></nav>
+    <div class="rail-head server-head">
+      <span class="eyebrow">SERVERS</span>
+      <div class="server-actions">
+        <button id="createServerBtn" class="icon-btn" title="Create server" aria-label="Create server">+</button>
+        <button id="joinServerBtn" class="icon-btn" title="Join with invite" aria-label="Join server">↗</button>
+        <button id="inviteServerBtn" class="icon-btn" title="Show invite code" aria-label="Show invite code">ⓘ</button>
+        <button id="manageRolesBtn" class="icon-btn" title="Manage member roles" aria-label="Manage member roles">♙</button>
+      </div>
+    </div>
+    <select id="serverSelect" class="server-select" aria-label="Active server"></select>
+    <div class="rail-head channel-head">
+      <span class="eyebrow">CHANNELS</span>
+      <button id="newRoomBtn" class="icon-btn" title="New channel" aria-label="New channel">+</button>
+    </div>
+    <nav id="roomList" class="rooms" aria-label="Channels"></nav>
+    <div class="rail-head dm-head">
+      <span class="eyebrow">DIRECT MESSAGES</span>
+      <button id="newDmBtn" class="icon-btn" title="New direct message" aria-label="New direct message">+</button>
+    </div>
+    <nav id="dmList" class="rooms dm-list" aria-label="Direct messages"></nav>
 
     <footer class="rail-foot">
       <div class="me-card">
@@ -144,6 +182,8 @@
         </div>
       </div>
       <button id="infoBtn" class="ghost-btn">Host &amp; devices</button>
+      <button id="settingsBtn" class="ghost-btn">Appearance settings</button>
+      <button id="switchAccountBtn" class="ghost-btn">Switch account / sign out</button>
     </footer>
   </aside>
 
@@ -153,6 +193,14 @@
       <div class="stage-title">
         <h2 id="roomTitle"># general</h2>
         <p id="roomMeta">Establishing secure session…</p>
+      </div>
+      <label class="chat-search" aria-label="Search messages">
+        <span>⌕</span><input id="searchInput" type="search" placeholder="Search messages…" autocomplete="off">
+      </label>
+      <div class="call-actions" aria-label="Call actions">
+        <button id="voiceCallBtn" class="icon-btn" type="button" title="Start voice call" aria-label="Start voice call">☎</button>
+        <button id="videoCallBtn" class="icon-btn" type="button" title="Start video call" aria-label="Start video call">▣</button>
+        <button id="screenShareBtn" class="icon-btn" type="button" title="Share screen" aria-label="Share screen">▤</button>
       </div>
       <div class="head-badges">
         <span class="badge lock-badge">
@@ -171,8 +219,12 @@
       <h3 id="emptyTitle">Nothing here yet.</h3>
       <p id="emptyText">Send the first message. It is encrypted on this device before it leaves.</p>
     </div>
+    <p id="typingIndicator" class="typing-indicator" hidden></p>
 
     <form id="composer" class="composer" autocomplete="off">
+      <button id="voiceMessageBtn" class="attach-btn" type="button" title="Record a short voice message" aria-label="Record a voice message">🎙</button>
+      <button id="attachBtn" class="attach-btn" type="button" title="Attach a file" aria-label="Attach a file">＋</button>
+      <input id="fileInput" type="file" hidden>
       <textarea id="input" rows="1" placeholder="Message #general"
                 aria-label="Message" maxlength="8000"></textarea>
       <button id="sendBtn" class="send-btn" type="submit" aria-label="Send message">
@@ -187,6 +239,22 @@
 </section>
 
 <!-- ============================ DIALOGS ============================ -->
+<dialog id="callDialog" class="dialog call-dialog">
+  <form method="dialog" class="dialog-inner call-dialog-inner">
+    <header class="dialog-head">
+      <h3 id="callTitle">Call</h3>
+      <span id="callStatus" class="badge">Connecting…</span>
+    </header>
+    <video id="remoteVideo" autoplay playsinline></video>
+    <audio id="remoteAudio" autoplay></audio>
+    <p id="callHelp" class="muted">Calls use peer-to-peer WebRTC. Some networks require a TURN relay, which is not bundled.</p>
+    <footer class="dialog-foot">
+      <button id="endCallBtn" type="button" class="danger-btn">End call</button>
+      <button value="close" class="ghost-btn compact">Close</button>
+    </footer>
+  </form>
+</dialog>
+
 <dialog id="infoDialog" class="dialog">
   <form method="dialog" class="dialog-inner">
     <header class="dialog-head">
@@ -223,24 +291,51 @@
   </form>
 </dialog>
 
+<dialog id="settingsDialog" class="dialog">
+  <form id="settingsForm" class="dialog-inner" method="dialog">
+    <header class="dialog-head">
+      <h3>Appearance settings</h3>
+      <button value="close" class="icon-btn" aria-label="Close">×</button>
+    </header>
+    <p class="muted">These preferences are saved on this device and do not change other users' appearance.</p>
+    <label class="field">
+      <span>Background color</span>
+      <input id="backgroundColorInput" type="color" value="#06090e" aria-label="Background color">
+    </label>
+    <label class="field">
+      <span>Accent color</span>
+      <input id="accentColorInput" type="color" value="#3ee0c5" aria-label="Accent color">
+    </label>
+    <footer class="dialog-foot">
+      <button id="resetAppearanceBtn" type="button" class="ghost-btn">Reset defaults</button>
+      <button value="close" class="primary small">Done</button>
+    </footer>
+  </form>
+</dialog>
+
 <dialog id="roomDialog" class="dialog">
   <form id="roomForm" class="dialog-inner" method="dialog">
     <header class="dialog-head">
-      <h3>New group</h3>
+      <h3>New channel</h3>
       <button value="cancel" class="icon-btn" aria-label="Close">×</button>
     </header>
     <label class="field">
-      <span>Group name</span>
+      <span>Channel name</span>
       <input id="roomNameInput" maxlength="32" placeholder="operations" autocomplete="off">
     </label>
     <label class="field">
-      <span>Description (optional)</span>
-      <input id="roomDescriptionInput" maxlength="120" placeholder="What belongs in this group?" autocomplete="off">
+      <span>Category (optional)</span>
+      <input id="roomCategoryInput" maxlength="32" placeholder="Text channels" autocomplete="off">
     </label>
+    <label class="field">
+      <span>Description (optional)</span>
+      <input id="roomDescriptionInput" maxlength="120" placeholder="What belongs in this channel?" autocomplete="off">
+    </label>
+    <label class="private-channel-toggle"><input id="roomPrivateInput" type="checkbox"> Private channel — only invited members can read it</label>
     <p class="form-error" id="roomError" role="alert"></p>
     <footer class="dialog-foot">
       <button type="button" value="cancel" class="ghost-btn" data-close>Cancel</button>
-      <button type="submit" class="primary small">Create group</button>
+      <button type="submit" class="primary small">Create channel</button>
     </footer>
   </form>
 </dialog>

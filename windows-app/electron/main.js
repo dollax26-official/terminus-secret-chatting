@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, dialog, shell } = require("electron");
+const { app, BrowserWindow, Menu, dialog, shell, session } = require("electron");
 const crypto = require("crypto");
 const fs = require("fs");
 const http = require("http");
@@ -57,6 +57,15 @@ function samePin(a, b) {
   return crypto.timingSafeEqual(left, right);
 }
 
+function requestHostname(targetUrl) {
+  // WHATWG URL.hostname keeps brackets around IPv6 literals, but Node's
+  // https.request({ hostname }) expects the bare IPv6 address.
+  const hostname = targetUrl.hostname;
+  return hostname.startsWith("[") && hostname.endsWith("]")
+    ? hostname.slice(1, -1)
+    : hostname;
+}
+
 function fingerprintOf(certificate) {
   if (!certificate || !certificate.raw) return "";
   return crypto.createHash("sha256").update(certificate.raw).digest("hex");
@@ -105,7 +114,7 @@ function serveFile(response, filename, contentType) {
       "Cache-Control": "no-store",
       "X-Frame-Options": "DENY",
       "Content-Security-Policy":
-        "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data:",
+        "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data:; media-src 'self' data: blob:",
     });
     response.end(data);
   } catch (err) {
@@ -132,7 +141,7 @@ function probeHost(rawUrl) {
     const request = https.request(
       {
         protocol: "https:",
-        hostname: target.hostname,
+        hostname: requestHostname(target),
         port: target.port || 443,
         path: "/api/health",
         method: "GET",
@@ -199,7 +208,7 @@ function forward(request, response) {
 
   const upstream = https.request({
     protocol: "https:",
-    hostname: target.hostname,
+    hostname: requestHostname(target),
     port: target.port || 443,
     path: request.url,
     method: request.method,
@@ -405,6 +414,15 @@ function createWindow(startPath) {
 }
 
 async function main() {
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    const allowed = isLocal(String(details?.requestingUrl || "")) &&
+      ["media", "display-capture"].includes(permission);
+    callback(allowed);
+  });
+  session.defaultSession.setPermissionCheckHandler((webContents, permission, requestingOrigin) => {
+    return isLocal(String(requestingOrigin || "")) &&
+      ["media", "display-capture"].includes(permission);
+  });
   if (!app.requestSingleInstanceLock()) {
     app.quit();
     return;
