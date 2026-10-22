@@ -52,7 +52,8 @@ class HostSettingsApp:
         self.root = root
         self.root.title("Terminus Secrets · Host Manager")
         self.root.geometry("740x760")
-        self.root.minsize(620, 680)
+        # Keep the minimum height low enough for short laptop screens; the canvas scrolls the rest.
+        self.root.minsize(620, 520)
         self.root.configure(bg="#080d13")
         self.process: subprocess.Popen | None = None
         self.log_handle = None
@@ -126,6 +127,12 @@ class HostSettingsApp:
         outer.bind("<Configure>", self._update_scroll_region)
         self.root.after_idle(self._update_scroll_region)
         self.canvas.bind("<Configure>", self._resize_scroll_content)
+        # The canvas is keyboard-scrollable as well as mouse-wheel/touchpad scrollable.
+        self.canvas.bind("<Prior>", lambda _event: self.canvas.yview_scroll(-1, "pages"))
+        self.canvas.bind("<Next>", lambda _event: self.canvas.yview_scroll(1, "pages"))
+        self.canvas.bind("<Home>", lambda _event: self.canvas.yview_moveto(0))
+        self.canvas.bind("<End>", lambda _event: self.canvas.yview_moveto(1))
+        self.canvas.bind("<Button-1>", lambda _event: self.canvas.focus_set(), add="+")
         ttk.Label(outer, text="TERMINUS  /  HOST MANAGER", style="Muted.TLabel").pack(anchor="w")
         ttk.Label(outer, text="Configure your private server", style="Title.TLabel").pack(anchor="w", pady=(5, 3))
         ttk.Label(outer, text="Choose the capabilities clients can see. Your vault phrase and pairing code are kept in the data folder.", wraplength=640, style="Muted.TLabel").pack(anchor="w", pady=(0, 18))
