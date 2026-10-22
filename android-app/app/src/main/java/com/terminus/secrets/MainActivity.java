@@ -398,7 +398,7 @@ public class MainActivity extends Activity {
         setContentView(root);
         String appUrl = serverUrl + "/app/";
         if (forcePairOnNextLoad) {
-            appUrl += "?ts_hosts=" + Uri.encode(pendingHostsJson) + "&ts_force_pair=1";
+            appUrl += "?ts_hosts=" + Uri.encode(pendingHostsJson) + "&ts_force_pair=1&ts_active_host=" + Uri.encode(serverUrl);
             pendingHostsJson = "[]";
             forcePairOnNextLoad = false;
         }
