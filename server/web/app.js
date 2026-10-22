@@ -1541,7 +1541,7 @@
   }
 
   async function openDirectMessage() {
-    const username = window.prompt("Username to message:");
+    const username = window.prompt("Username(s) to message — separate multiple usernames with commas for a group DM:");
     if (username === null || !username.trim()) return;
     try {
       const res = await api("/api/dm/open", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: username.trim() }) });
