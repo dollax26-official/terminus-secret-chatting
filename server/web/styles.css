@@ -947,3 +947,14 @@ button:focus:not(:focus-visible) { outline: none; }
 .message-search-wrap input { width: 100%; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); color: var(--text); font-size: 12px; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 @media (max-width: 600px) { .message-search-wrap { max-width: 145px; } }
+
+
+/* Small encrypted file attachments */
+.attach-btn { align-self: flex-end; flex: 0 0 38px; height: 38px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--muted); font-size: 25px; line-height: 1; cursor: pointer; }
+.attach-btn:hover { color: var(--accent); border-color: var(--accent-line); }
+.attachment-card { display: flex; align-items: center; gap: 10px; min-width: 0; max-width: 100%; }
+.attachment-icon { display: grid; place-items: center; flex: 0 0 34px; height: 34px; border-radius: 9px; background: var(--accent-soft); color: var(--accent); font-size: 22px; }
+.attachment-info { display: grid; min-width: 0; gap: 3px; }
+.attachment-info b { overflow-wrap: anywhere; font-size: 12px; }
+.attachment-info small { color: var(--muted); font-size: 10px; }
+.attachment-download { flex: 0 0 auto; padding: 6px 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--text); font-size: 11px; cursor: pointer; }
