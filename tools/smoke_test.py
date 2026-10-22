@@ -65,8 +65,14 @@ def decrypt(key, room, nonce_b64, ct_b64):
 
 def main():
     shutil.rmtree(DATA, ignore_errors=True)
+    DATA.mkdir(parents=True, exist_ok=True)
+    config_path = DATA / "settings.json"
+    config_path.write_text(json.dumps({"features": {
+        "photos": False, "voice_messages": True, "voice_calls": False,
+        "video_calls": True, "screen_sharing": False,
+    }}), encoding="utf-8")
     process = subprocess.Popen(
-        [sys.executable, str(HOST), "--port", str(PORT), "--data-dir", str(DATA)],
+        [sys.executable, str(HOST), "--port", str(PORT), "--data-dir", str(DATA), "--config", str(config_path)],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
@@ -87,8 +93,8 @@ def main():
         assert health["fingerprint"].count(":") == 31
         config = get_json("/api/config")
         assert config["features"] == {
-            "photos": True, "voice_messages": True, "voice_calls": True,
-            "video_calls": True, "screen_sharing": True,
+            "photos": False, "voice_messages": True, "voice_calls": False,
+            "video_calls": True, "screen_sharing": False,
         }
 
         global ACCOUNT_TOKEN
@@ -101,6 +107,15 @@ def main():
         ACCOUNT_TOKEN = account["account_token"]
         assert account["account"]["username"] == "smoke_tester"
         assert account["account"]["display_name"] == "Smoke Display"
+        first_account_token = ACCOUNT_TOKEN
+        _, _, same_display_body = request(
+            "/api/accounts/register", method="POST",
+            payload={"username": "smoke_tester_two", "password": "smoke-test-password-456", "display_name": "Smoke Display"},
+        )
+        same_display = json.loads(same_display_body)
+        assert same_display["account"]["username"] == "smoke_tester_two"
+        assert same_display["account"]["display_name"] == "Smoke Display"
+        ACCOUNT_TOKEN = first_account_token
 
         try:
             request("/api/accounts/register", method="POST",
