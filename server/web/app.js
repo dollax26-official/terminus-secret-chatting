@@ -289,6 +289,7 @@
     ui.createServerBtn = $("#createServerBtn");
     ui.joinServerBtn = $("#joinServerBtn");
     ui.inviteServerBtn = $("#inviteServerBtn");
+    ui.manageRolesBtn = $("#manageRolesBtn");
     ui.roomTitle = $("#roomTitle");
     ui.roomMeta = $("#roomMeta");
     ui.syncState = $("#syncState");
@@ -426,6 +427,7 @@
     ui.createServerBtn.addEventListener("click", createServer);
     ui.joinServerBtn.addEventListener("click", joinServer);
     ui.inviteServerBtn.addEventListener("click", shareInvite);
+    ui.manageRolesBtn.addEventListener("click", manageServerRoles);
     ui.composer.addEventListener("submit", (event) => {
       event.preventDefault();
       submitComposer();
@@ -910,6 +912,8 @@
     ui.serverSelect.replaceChildren(options);
     ui.inviteServerBtn.disabled = !current;
     ui.inviteServerBtn.title = current ? "Copy/share server invite code" : "Join or create a server first";
+    ui.manageRolesBtn.disabled = !current || current.role !== "owner";
+    ui.manageRolesBtn.title = current?.role === "owner" ? "Promote or demote server members" : "Only the server owner can manage roles";
   }
 
   async function createServer() {
@@ -980,6 +984,34 @@
       toast("Invite code copied. Share it only with people you want to invite.");
     } catch (_) {
       window.prompt("Copy this server invite code:", code);
+    }
+  }
+
+  async function manageServerRoles() {
+    const server = state.servers.find((item) => item.id === state.currentServer);
+    if (!server || server.role !== "owner") {
+      toast("Only the server owner can manage roles.", "error");
+      return;
+    }
+    const username = window.prompt("Enter the exact username of a member:");
+    if (username === null || !username.trim()) return;
+    const roleInput = window.prompt("Set role: type admin or member", "admin");
+    if (roleInput === null) return;
+    const role = roleInput.trim().toLowerCase();
+    if (!["admin", "member"].includes(role)) {
+      toast("Role must be admin or member.", "error");
+      return;
+    }
+    try {
+      const res = await api("/api/servers/role", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ server_id: state.currentServer, username: username.trim(), role }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not update role.");
+      toast(`${username.trim()} is now ${role}.`);
+    } catch (err) {
+      toast(err.message || "Could not update role.", "error");
     }
   }
 
