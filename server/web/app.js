@@ -68,6 +68,7 @@
     savedHosts: [],
     actionMode: "",
     actionHost: null,
+    actionMessage: null,
     features: { photos: true, voice_messages: true, voice_calls: true, video_calls: true, screen_sharing: true },
   };
 
@@ -1269,45 +1270,9 @@
     }
   }
 
-  async function reactToMessage(message) {
-    const emoji = window.prompt("Reaction emoji (for example 👍 ❤️ 😂 🎉):", "👍");
-    if (!emoji || !emoji.trim()) return;
-    try {
-      const res = await api("/api/messages/react", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message_id: message.id, emoji: emoji.trim() }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Could not add reaction.");
-      message.reactions = data.reactions || [];
-      renderMessages();
-    } catch (err) {
-      toast(err.message || "Could not add reaction.", "error");
-    }
-  }
+  function reactToMessage(message) { openActionDialog("reaction", { message }); }
 
-  async function editMessage(message) {
-    const next = window.prompt("Edit message:", message.text || "");
-    if (next === null || next === message.text) return;
-    if (!next.trim()) { toast("Message cannot be empty.", "error"); return; }
-    try {
-      const sealed = await encryptText(next, message.room_id);
-      const res = await api("/api/messages/edit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message_id: message.id, nonce: sealed.nonce, ciphertext: sealed.ciphertext }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Could not edit message.");
-      message.text = next;
-      message.edited_at = new Date().toISOString();
-      renderMessages();
-      toast("Message edited.");
-    } catch (err) {
-      toast(err.message || "Could not edit message.", "error");
-    }
-  }
+  function editMessage(message) { openActionDialog("edit-message", { message }); }
 
   async function deleteMessage(message) {
     if (!window.confirm("Delete this message for everyone?")) return;
@@ -1596,7 +1561,8 @@
   function makeActionField(spec) {
     const label = el("label", "field");
     label.append(el("span", "", spec.label));
-    const input = el("input");
+    const input = spec.multiline ? el("textarea") : el("input");
+    if (spec.multiline) input.rows = spec.rows || 5;
     input.name = spec.name;
     input.dataset.actionField = spec.name;
     input.placeholder = spec.placeholder || "";
@@ -1632,11 +1598,18 @@
       invite: { title: "Server invite", description: "Share this code only with people you want to join this server.", submit: "Done", fields: [
         { name: "invite_code", label: "Invite code", value: options.inviteCode || "", readOnly: true, maxLength: 96 },
       ] },
+      "edit-message": { title: "Edit message", description: "Your updated message replaces the current text for everyone in this conversation.", submit: "Save edit", fields: [
+        { name: "text", label: "Message", value: options.message?.text || "", required: true, maxLength: 8000, multiline: true, rows: 6 },
+      ] },
+      reaction: { title: "React to message", description: "Enter one emoji to add or toggle your reaction.", submit: "Add reaction", fields: [
+        { name: "emoji", label: "Emoji", value: "👍", required: true, maxLength: 16 },
+      ] },
     };
     const config = configs[mode];
     if (!config) return;
     state.actionMode = mode;
     state.actionHost = options.host || null;
+    state.actionMessage = options.message || null;
     ui.actionTitle.textContent = config.title;
     ui.actionDescription.textContent = config.description;
     ui.actionError.textContent = "";
@@ -1667,7 +1640,8 @@
   async function submitActionDialog(event) {
     event.preventDefault();
     const mode = state.actionMode;
-    const value = (name) => ui.actionFields.querySelector('[data-action-field="' + name + '"]')?.value.trim() || "";
+    const raw = (name) => ui.actionFields.querySelector('[data-action-field="' + name + '"]')?.value || "";
+    const value = (name) => raw(name).trim();
     if (mode === "invite") { ui.actionDialog.close(); return; }
     ui.actionError.textContent = "";
     ui.actionSubmitBtn.disabled = true;
@@ -1721,6 +1695,37 @@
         renderSavedHosts();
         ui.actionDialog.close();
         toast("Host saved. Sign-in, pairing code, and vault phrase are required when reconnecting.");
+      } else if (mode === "reaction") {
+        const message = state.actionMessage;
+        const emoji = value("emoji");
+        if (!message || !emoji) throw new Error("Enter an emoji reaction.");
+        const res = await api("/api/messages/react", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message_id: message.id, emoji }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Could not add reaction.");
+        message.reactions = data.reactions || [];
+        ui.actionDialog.close();
+        renderMessages();
+      } else if (mode === "edit-message") {
+        const message = state.actionMessage;
+        const next = raw("text");
+        if (!message) throw new Error("The message to edit is no longer available.");
+        if (!next.trim()) throw new Error("Message cannot be empty.");
+        if (next === message.text) { ui.actionDialog.close(); return; }
+        const sealed = await encryptText(next, message.room_id);
+        const res = await api("/api/messages/edit", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message_id: message.id, nonce: sealed.nonce, ciphertext: sealed.ciphertext }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Could not edit message.");
+        message.text = next;
+        message.edited_at = new Date().toISOString();
+        ui.actionDialog.close();
+        renderMessages();
+        toast("Message edited.");
       } else if (mode === "fingerprint") {
         const host = state.actionHost;
         if (!host) throw new Error("The selected host is missing.");
@@ -1738,7 +1743,7 @@
     } finally {
       if (ui.actionDialog.open) {
         ui.actionSubmitBtn.disabled = false;
-        const labels = { "create-server": "Create server", "join-server": "Join server", "direct-message": "Open conversation", "add-host": "Save host", fingerprint: "Trust certificate", invite: "Done" };
+        const labels = { "create-server": "Create server", "join-server": "Join server", "direct-message": "Open conversation", "add-host": "Save host", fingerprint: "Trust certificate", invite: "Done", "edit-message": "Save edit", reaction: "Add reaction" };
         ui.actionSubmitBtn.textContent = labels[state.actionMode] || "Continue";
       }
     }
