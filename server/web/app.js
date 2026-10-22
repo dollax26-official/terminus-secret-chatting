@@ -25,6 +25,8 @@
     accountToken: localStorage.getItem(LS.accountToken) || "",
     account: (() => { try { return JSON.parse(localStorage.getItem(LS.account) || "null"); } catch (_) { return null; } })(),
     accountMode: "login",
+    currentServer: localStorage.getItem("ts.server") || "",
+    servers: [],
     token: localStorage.getItem(LS.token) || "",
     deviceId: localStorage.getItem(LS.device) || "",
     deviceName: localStorage.getItem(LS.name) || guessDeviceName(),
@@ -283,6 +285,10 @@
     ui.hostBadge = $("#hostBadge");
     ui.hostBadgeText = $("#hostBadgeText");
     ui.roomList = $("#roomList");
+    ui.serverSelect = $("#serverSelect");
+    ui.createServerBtn = $("#createServerBtn");
+    ui.joinServerBtn = $("#joinServerBtn");
+    ui.inviteServerBtn = $("#inviteServerBtn");
     ui.roomTitle = $("#roomTitle");
     ui.roomMeta = $("#roomMeta");
     ui.syncState = $("#syncState");
@@ -416,6 +422,10 @@
       if (button) setAuthMethod(button.dataset.auth);
     });
 
+    ui.serverSelect.addEventListener("change", () => switchServer(ui.serverSelect.value));
+    ui.createServerBtn.addEventListener("click", createServer);
+    ui.joinServerBtn.addEventListener("click", joinServer);
+    ui.inviteServerBtn.addEventListener("click", shareInvite);
     ui.composer.addEventListener("submit", (event) => {
       event.preventDefault();
       submitComposer();
@@ -687,9 +697,10 @@
     let guard = 0;
     state.messages = [];
     state.lastId = 0;
+    state.syncSince = "";
     while (guard < 50) {
       guard += 1;
-      const res = await api(`/api/sync?after=${state.lastId}&wait=0&updated_after=${encodeURIComponent(state.syncSince)}`);
+      const res = await api(`/api/sync?after=${state.lastId}&wait=0&updated_after=${encodeURIComponent(state.syncSince)}&server_id=${encodeURIComponent(state.currentServer)}`);
       if (res.status === 401) {
         forgetToken();
         throw new Error("This device is no longer authorized. Pair it again.");
@@ -703,6 +714,11 @@
 
   /* ------------------------------------------------------------------- sync */
   async function applySync(data, options = {}) {
+    state.servers = data.servers || state.servers;
+    if (state.servers.length && !state.servers.some((server) => server.id === state.currentServer)) {
+      state.currentServer = state.servers[0].id;
+      localStorage.setItem("ts.server", state.currentServer);
+    }
     state.rooms = data.rooms || state.rooms;
     if (typeof data.room_admin_required === "boolean") {
       state.roomAdminRequired = data.room_admin_required;
@@ -800,6 +816,7 @@
       }
     }
 
+    renderServers();
     renderRooms();
     if (!ui.chatView.hidden) {
       updateHeader();
@@ -818,7 +835,7 @@
     state.polling = true;
     while (!state.stopped) {
       try {
-        const res = await api(`/api/sync?after=${state.lastId}&wait=20&updated_after=${encodeURIComponent(state.syncSince)}`);
+        const res = await api(`/api/sync?after=${state.lastId}&wait=20&updated_after=${encodeURIComponent(state.syncSince)}&server_id=${encodeURIComponent(state.currentServer)}`);
         if (res.status === 401) {
           lockOut("This device was revoked by the host.");
           break;
@@ -868,6 +885,108 @@
 
   function hueOf(id) {
     return hueFor(id) % 360;
+  }
+
+  /* ------------------------------------------------------------------ servers */
+  function renderServers() {
+    const current = state.servers.find((server) => server.id === state.currentServer);
+    const options = document.createDocumentFragment();
+    if (!state.servers.length) {
+      const option = el("option", "", "No servers joined");
+      option.value = "";
+      options.append(option);
+    } else {
+      for (const server of state.servers) {
+        const option = el("option", "", server.name);
+        option.value = server.id;
+        option.selected = server.id === state.currentServer;
+        options.append(option);
+      }
+    }
+    ui.serverSelect.replaceChildren(options);
+    ui.inviteServerBtn.disabled = !current;
+    ui.inviteServerBtn.title = current ? "Copy/share server invite code" : "Join or create a server first";
+  }
+
+  async function createServer() {
+    const name = window.prompt("Name your server:");
+    if (name === null || !name.trim()) return;
+    const description = window.prompt("Server description (optional):", "") || "";
+    try {
+      const res = await api("/api/servers/create", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim(), description }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not create server.");
+      state.currentServer = data.id;
+      localStorage.setItem("ts.server", data.id);
+      state.lastId = 0;
+      state.syncSince = "";
+      state.messageIds.clear();
+      state.messages = [];
+      await initialSync();
+      renderServers();
+      renderRooms();
+      renderMessages();
+      toast(`Server created. Invite code: ${data.invite_code}`);
+    } catch (err) {
+      toast(err.message || "Could not create server.", "error");
+    }
+  }
+
+  async function joinServer() {
+    const invite_code = window.prompt("Paste the server invite code:");
+    if (invite_code === null || !invite_code.trim()) return;
+    try {
+      const res = await api("/api/servers/join", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ invite_code: invite_code.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not join server.");
+      state.currentServer = data.id;
+      localStorage.setItem("ts.server", data.id);
+      state.lastId = 0;
+      state.syncSince = "";
+      state.messageIds.clear();
+      state.messages = [];
+      await initialSync();
+      renderServers();
+      renderRooms();
+      renderMessages();
+      toast(`Joined ${data.name}.`);
+    } catch (err) {
+      toast(err.message || "Could not join server.", "error");
+    }
+  }
+
+  async function shareInvite() {
+    const server = state.servers.find((item) => item.id === state.currentServer);
+    if (!server) return;
+    const code = server.invite_code;
+    try {
+      await navigator.clipboard.writeText(code);
+      toast("Invite code copied. Share it only with people you want to invite.");
+    } catch (_) {
+      window.prompt("Copy this server invite code:", code);
+    }
+  }
+
+  async function switchServer(serverId) {
+    if (!serverId || serverId === state.currentServer) return;
+    state.currentServer = serverId;
+    localStorage.setItem("ts.server", serverId);
+    state.lastId = 0;
+    state.syncSince = "";
+    state.messageIds.clear();
+    state.messages = [];
+    state.unread.clear();
+    await initialSync();
+    renderServers();
+    renderRooms();
+    renderMessages();
+    updateHeader();
   }
 
   /* ------------------------------------------------------------------- rooms */
@@ -1399,7 +1518,7 @@
       const res = await api("/api/rooms", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, description, admin_key: adminKey }),
+        body: JSON.stringify({ name, description, admin_key: adminKey, server_id: state.currentServer }),
       });
       if (!res.ok) {
         let detail = "Could not create the group.";
