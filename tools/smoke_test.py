@@ -96,8 +96,15 @@ def main():
         ACCOUNT_TOKEN = account["account_token"]
         assert account["account"]["username"] == "smoke_tester"
 
+        try:
+            request("/api/accounts/register", method="POST",
+                    payload={"username": "SMOKE_TESTER", "password": "another-valid-password-123"})
+            raise AssertionError("duplicate username was accepted")
+        except urllib.error.HTTPError as exc:
+            assert exc.code == 409, exc.code
+
         code = (DATA / "pairing-code.txt").read_text().strip()
-        assert len(code) == 9
+        assert len(code) == 13, code
 
         try:
             request("/api/sync", token="ts_invalid_token_0000000000")
@@ -196,6 +203,19 @@ def main():
             payload={"username": "smoke_other"},
         )
         dm = json.loads(dm_body)
+
+        # Call signalling is room-scoped and carries only client-encrypted SDP data.
+        signal_nonce, signal_ciphertext = encrypt(key, dm["id"], json.dumps({"sdp": "encrypted-offer"}))
+        request("/api/calls/signal", method="POST", token=device_a["token"],
+                payload={"room_id": dm["id"], "kind": "offer",
+                         "payload": {"nonce": signal_nonce, "ciphertext": signal_ciphertext}})
+        ACCOUNT_TOKEN = other_account["account_token"]
+        signals = get_json(f"/api/calls/poll?room_id={dm['id']}&after=0", token=other_device["token"])["signals"]
+        assert len(signals) == 1 and signals[0]["kind"] == "offer"
+        assert json.loads(decrypt(key, dm["id"], signals[0]["payload"]["nonce"],
+                                  signals[0]["payload"]["ciphertext"]))["sdp"] == "encrypted-offer"
+        ACCOUNT_TOKEN = account1_token
+
         dm_nonce, dm_ciphertext = encrypt(key, dm["id"], "private direct message")
         request(
             "/api/messages", method="POST", token=device_a["token"],
