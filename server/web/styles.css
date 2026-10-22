@@ -1006,3 +1006,9 @@ button:focus:not(:focus-visible) { outline: none; }
 .voice-player { display:block; width:min(300px,100%); min-width:190px; height:36px; margin:2px 0 6px; }
 .voice-label { color:var(--muted); font-size:11px; margin:2px 0 6px; }
 .attachment-link { display:inline-block; margin-top:3px; }
+
+.saved-host-head { margin-top:4px; }
+.saved-host-list { max-height:100px; overflow:auto; flex:0 0 auto; }
+.saved-host-btn { color:var(--muted); }
+.saved-host-btn .hash { color:var(--blue); }
+.host-empty { padding:7px 10px 10px; color:var(--faint); font-size:11px; }
