@@ -969,3 +969,6 @@ button:focus:not(:focus-visible) { outline: none; }
 
 .private-channel-toggle { display:flex; align-items:flex-start; gap:10px; margin:4px 0 16px; color:var(--muted); font-size:12px; line-height:1.5; }
 .private-channel-toggle input { flex:none; width:16px; height:16px; accent-color:var(--accent); }
+
+.typing-indicator { min-height:16px; margin:0 24px 4px; color:var(--faint); font-size:11px; font-style:italic; }
+.typing-indicator[hidden] { display:none; }
