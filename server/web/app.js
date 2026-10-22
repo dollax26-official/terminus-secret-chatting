@@ -1937,24 +1937,24 @@
 
   async function pollCallSignals() {
     if (state.callSignalBusy || !state.token || !state.accountToken || !state.key || state.stopped) return;
-    const room = state.call ? state.rooms.find((item) => item.id === state.call.roomId) : currentRoom();
-    if (!room || room.kind !== "dm") return;
+    if (!state.call && !state.rooms.some((item) => item.kind === "dm")) return;
     state.callSignalBusy = true;
     try {
-      const cursor = state.callSignalCursor[room.id] || 0;
-      const res = await api(`/api/calls/poll?room_id=${encodeURIComponent(room.id)}&after=${cursor}`);
+      const cursor = state.callSignalCursor._all || 0;
+      const res = await api(`/api/calls/poll?after=${cursor}`);
       if (!res.ok) return;
       const data = await res.json();
       for (const signal of (data.signals || [])) {
-        state.callSignalCursor[room.id] = Math.max(state.callSignalCursor[room.id] || 0, Number(signal.id) || 0);
-        if (Date.now() - new Date(signal.created_at).getTime() > 120000) continue;
+        state.callSignalCursor._all = Math.max(state.callSignalCursor._all || 0, Number(signal.id) || 0);
+        const roomId = signal.room_id;
+        if (!roomId || Date.now() - new Date(signal.created_at).getTime() > 120000) continue;
         let detail;
         try {
-          const plain = await decryptMessage({ room_id: room.id, nonce: signal.payload?.nonce, ciphertext: signal.payload?.ciphertext });
+          const plain = await decryptMessage({ room_id: roomId, nonce: signal.payload?.nonce, ciphertext: signal.payload?.ciphertext });
           if (!plain) continue;
           detail = JSON.parse(plain);
         } catch (_) { continue; }
-        await handleCallSignal(room.id, signal.kind, detail);
+        await handleCallSignal(roomId, signal.kind, detail);
       }
     } catch (_) {
       // Calls reconnect independently from chat history.
