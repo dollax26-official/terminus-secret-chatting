@@ -305,6 +305,8 @@
     ui.composer = $("#composer");
     ui.input = $("#input");
     ui.sendBtn = $("#sendBtn");
+    ui.attachInput = $("#attachInput");
+    ui.attachBtn = $("#attachBtn");
     ui.meName = $("#meName");
     ui.meMeta = $("#meMeta");
     ui.meAvatar = $("#meAvatar");
@@ -447,6 +449,8 @@
       }
     });
     ui.input.addEventListener("input", autoGrow);
+    ui.attachBtn.addEventListener("click", () => ui.attachInput.click());
+    ui.attachInput.addEventListener("change", uploadSmallAttachment);
     ui.messages.addEventListener("scroll", updateJump, { passive: true });
     ui.jumpBtn.addEventListener("click", () => scrollToBottom());
 
@@ -1221,7 +1225,22 @@
     }
 
     const bubble = el("div", "bubble");
-    if (message.failedDecrypt) {
+    const attachment = parseAttachment(message.text);
+    if (message.deleted) {
+      bubble.textContent = "Message deleted";
+      bubble.classList.add("deleted-bubble");
+    } else if (attachment) {
+      const card = el("div", "attachment-card");
+      card.append(el("span", "attachment-icon", "↧"));
+      const info = el("div", "attachment-info");
+      info.append(el("b", "", attachment.name), el("small", "", `${attachment.mime || "File"} · ${formatBytes(attachment.size)}`));
+      card.append(info);
+      const download = el("button", "attachment-download", "Download");
+      download.type = "button";
+      download.addEventListener("click", () => downloadAttachment(attachment));
+      card.append(download);
+      bubble.append(card);
+    } else if (message.failedDecrypt) {
       bubble.textContent = "⚠ This message could not be decrypted.";
       bubble.style.color = "var(--danger)";
     } else {
@@ -1281,6 +1300,76 @@
     } else if (options.track !== false) {
       state.newBelow += 1;
       updateJump();
+    }
+  }
+
+  function parseAttachment(text) {
+    if (!text || typeof text !== "string" || text.length > 60000 || text[0] !== "{") return null;
+    try {
+      const data = JSON.parse(text);
+      if (data.__terminus_attachment_v1 !== true || typeof data.name !== "string" ||
+          typeof data.data !== "string" || !Number.isFinite(data.size) || data.size > 32 * 1024) return null;
+      return data;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function formatBytes(size) {
+    return size < 1024 ? `${size} B` : `${(size / 1024).toFixed(1)} KB`;
+  }
+
+  async function uploadSmallAttachment() {
+    const file = ui.attachInput.files && ui.attachInput.files[0];
+    ui.attachInput.value = "";
+    if (!file) return;
+    if (file.size > 32 * 1024) {
+      toast("For now, encrypted attachments are limited to 32 KB per file.", "error");
+      return;
+    }
+    if (!state.key) {
+      toast("Unlock the vault before attaching files.", "error");
+      return;
+    }
+    try {
+      const data = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).split(",")[1] || "");
+        reader.onerror = () => reject(new Error("Could not read that file."));
+        reader.readAsDataURL(file);
+      });
+      const payload = JSON.stringify({
+        __terminus_attachment_v1: true,
+        name: file.name.slice(0, 180),
+        mime: file.type || "application/octet-stream",
+        size: file.size,
+        data,
+      });
+      await sendText(payload, state.replyTo);
+      state.replyTo = null;
+      ui.input.placeholder = `Message ${currentRoom().kind === "dm" ? "@" : "#"}${currentRoom().name || "general"}`;
+      toast("Encrypted attachment sent.");
+    } catch (err) {
+      toast(err.message || "Could not attach that file.", "error");
+    }
+  }
+
+  function downloadAttachment(attachment) {
+    try {
+      const binary = atob(attachment.data);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+      const blob = new Blob([bytes], { type: attachment.mime || "application/octet-stream" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = attachment.name || "attachment";
+      document.body.append(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (_) {
+      toast("Could not download that attachment.", "error");
     }
   }
 
