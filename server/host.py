@@ -297,6 +297,15 @@ def init_db(passphrase: str) -> None:
                 created_at TEXT NOT NULL,
                 PRIMARY KEY(message_id, account_id, emoji)
             );
+            CREATE TABLE IF NOT EXISTS call_signals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                room_id TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+                sender_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                kind TEXT NOT NULL,
+                payload TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_call_signals_room_id ON call_signals(room_id, id);
             CREATE INDEX IF NOT EXISTS idx_messages_id ON messages(id);
             CREATE INDEX IF NOT EXISTS idx_messages_room ON messages(room_id, id);
             """
@@ -538,6 +547,37 @@ class Handler(BaseHTTPRequestHandler):
                     ),
                 },
             )
+            return
+
+        if path == "/api/calls/poll":
+            device = self._require_device()
+            if device is None:
+                return
+            room_id = (query.get("room_id") or [""])[0].strip()[:80]
+            try:
+                after_signal = max(0, int((query.get("after") or ["0"])[0]))
+            except ValueError:
+                after_signal = 0
+            if not room_id:
+                self._error(400, "room_id required")
+                return
+            with db() as conn:
+                if not self._can_access_room(conn, device["account_id"], room_id):
+                    self._error(404, "conversation not found")
+                    return
+                conn.execute("DELETE FROM call_signals WHERE created_at < ?",
+                             ((datetime.now(timezone.utc).timestamp() - 86400),))
+                rows = conn.execute(
+                    """SELECT id, sender_account_id, kind, payload, created_at
+                       FROM call_signals WHERE room_id=? AND id>? AND sender_account_id<>?
+                       ORDER BY id ASC LIMIT 100""",
+                    (room_id, after_signal, device["account_id"]),
+                ).fetchall()
+            self._send_json(200, {"signals": [
+                {"id": row["id"], "sender_account_id": row["sender_account_id"],
+                 "kind": row["kind"], "payload": json.loads(row["payload"]),
+                 "created_at": row["created_at"]} for row in rows
+            ]})
             return
 
         if path == "/api/sync":
@@ -785,6 +825,37 @@ class Handler(BaseHTTPRequestHandler):
             if device is None:
                 return
             self._open_dm(device, body)
+            return
+
+        if path == "/api/calls/signal":
+            device = self._require_device()
+            if device is None:
+                return
+            room_id = str(body.get("room_id") or "").strip()[:80]
+            kind = str(body.get("kind") or "").strip().lower()
+            payload = body.get("payload") if isinstance(body.get("payload"), dict) else {}
+            if not room_id or kind not in ("offer", "answer", "ice", "hangup", "reject", "busy"):
+                self._error(400, "room_id and a valid call signal kind are required")
+                return
+            encoded = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
+            if len(encoded) > 64000:
+                self._error(413, "call signal too large")
+                return
+            with db() as conn:
+                if not self._can_access_room(conn, device["account_id"], room_id):
+                    self._error(404, "conversation not found")
+                    return
+                room = conn.execute("SELECT kind FROM rooms WHERE id=?", (room_id,)).fetchone()
+                if room is None or room["kind"] != "dm":
+                    self._error(403, "calls are currently supported in direct messages only")
+                    return
+                conn.execute(
+                    "INSERT INTO call_signals(room_id,sender_account_id,kind,payload,created_at) VALUES(?,?,?,?,?)",
+                    (room_id, device["account_id"], kind, encoded, now_iso()),
+                )
+            with MESSAGE_COND:
+                MESSAGE_COND.notify_all()
+            self._send_json(200, {"ok": True})
             return
 
         if path == "/api/typing":
@@ -1583,6 +1654,8 @@ def main() -> int:
                         help="public HTTPS URL or IP clients use from outside this network")
     parser.add_argument("--rotate-master-key", action="store_true",
                         help="generate a new master key, print it, and exit")
+    parser.add_argument("--rotate-pairing-code", action="store_true",
+                        help="generate a new pairing code and exit")
     args = parser.parse_args()
 
     DATA_DIR = Path(args.data_dir).resolve()
@@ -1615,8 +1688,17 @@ def main() -> int:
     ensure_certificate(cert_path, key_path)
     CERT_FINGERPRINT = cert_fingerprint(cert_path)
 
-    PAIR_CODE = secrets.token_hex(2).upper() + "-" + secrets.token_hex(2).upper()
-    (DATA_DIR / "pairing-code.txt").write_text(PAIR_CODE + "\n", encoding="utf-8")
+    pairing_file = DATA_DIR / "pairing-code.txt"
+    if args.rotate_pairing_code:
+        PAIR_CODE = secrets.token_hex(3).upper() + "-" + secrets.token_hex(3).upper()
+        pairing_file.write_text(PAIR_CODE + "\n", encoding="utf-8")
+        print("New pairing code: " + PAIR_CODE)
+        return 0
+    if pairing_file.exists() and pairing_file.read_text(encoding="utf-8").strip():
+        PAIR_CODE = pairing_file.read_text(encoding="utf-8").strip().upper()
+    else:
+        PAIR_CODE = secrets.token_hex(3).upper() + "-" + secrets.token_hex(3).upper()
+        pairing_file.write_text(PAIR_CODE + "\n", encoding="utf-8")
 
     IPv6ThreadingHTTPServer.allow_reuse_address = True
     httpd = IPv6ThreadingHTTPServer(("::", args.port), Handler)
