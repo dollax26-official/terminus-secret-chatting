@@ -1798,7 +1798,8 @@
     parsed.pathname = "/";
     parsed.search = "";
     parsed.hash = "";
-    return parsed.toString().replace(/\\/$/, "");
+    const normalized = parsed.toString();
+    return normalized.endsWith("/") ? normalized.slice(0, -1) : normalized;
   }
 
   function importHostListFromQuery() {
