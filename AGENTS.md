@@ -4,10 +4,6 @@
 Before changing the shared web client, consult [UI Guides & Agent Rules](https://github.com/strongeron/ui-guides-agent-rules) and search its [principle index](https://ui-guides-agent-rules.netlify.app/principles/index.md) for the surfaces actually touched. Use only relevant individual rules and keep attribution to their original authors.
 
 ## Required UI behavior
-- **MUST** verify scroll reachability, not just visual layout: tall screens need a constrained-height scroll container with `overflow-y: auto`, not `min-height` alone.
-- **MUST** keep the native host-manager settings screen scrollable with a visible scrollbar and mouse-wheel/touchpad support; test at 620×520 and a normal desktop size.
-- **MUST** keep chat message items from flex-shrinking to fit the viewport; the message pane and channel list must remain vertically scrollable in Android WebView and desktop browsers.
-- **MUST** test the top and bottom of connect/auth forms, sidebar, dialogs, and call controls at 360×640, 390×844, and short desktop viewports using touch, mouse wheel, and keyboard.
 - **MUST** use the UI Guides rules as a targeted checklist: inspect form, button, dialog, keyboard-focus, responsive-layout, media, and performance rules relevant to the changed components; don't load the entire corpus.
 - **MUST** test the shared client at narrow Android widths and desktop widths; don't rely on screenshots or syntax checks alone.
 - **MUST** use semantic buttons for actions, labels for inputs, and visible keyboard focus; do not make clickable `div` elements.
