@@ -715,6 +715,10 @@
   /* ------------------------------------------------------------------- sync */
   async function applySync(data, options = {}) {
     state.servers = data.servers || state.servers;
+    if (!state.currentServer && data.active_server_id) {
+      state.currentServer = data.active_server_id;
+      localStorage.setItem("ts.server", state.currentServer);
+    }
     if (state.servers.length && !state.servers.some((server) => server.id === state.currentServer)) {
       state.currentServer = state.servers[0].id;
       localStorage.setItem("ts.server", state.currentServer);
