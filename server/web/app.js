@@ -706,6 +706,8 @@
   async function initialSync() {
     let guard = 0;
     state.messages = [];
+    state.messageIds.clear();
+    state.unread.clear();
     state.lastId = 0;
     state.syncSince = "";
     while (guard < 50) {
@@ -1589,14 +1591,10 @@
     }
     const name = ui.roomNameInput.value.trim().replace(/\s+/g, " ");
     const description = ui.roomDescriptionInput.value.trim().replace(/\s+/g, " ");
-    let adminKey = "";
-    if (state.roomAdminRequired) {
-      adminKey = window.prompt("Enter the host master key (or the separately configured group-management key).");
-      if (adminKey === null) return;
-      if (!adminKey.trim()) {
-        ui.roomError.textContent = "The host master key is required.";
-        return;
-      }
+    const activeServer = state.servers.find((server) => server.id === state.currentServer);
+    if (!activeServer || !["owner", "admin"].includes(activeServer.role)) {
+      ui.roomError.textContent = "Only server owners and admins can create channels.";
+      return;
     }
     if (!name) {
       ui.roomError.textContent = "Give the group a name.";
@@ -1607,7 +1605,7 @@
       const res = await api("/api/rooms", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, description, admin_key: adminKey, server_id: state.currentServer }),
+        body: JSON.stringify({ name, description, server_id: state.currentServer }),
       });
       if (!res.ok) {
         let detail = "Could not create the group.";
