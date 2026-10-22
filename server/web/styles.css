@@ -1002,3 +1002,7 @@ button:focus:not(:focus-visible) { outline: none; }
   .call-videos { grid-template-columns:1fr; }
   .call-videos video { max-height:190px; }
 }
+
+.voice-player { display:block; width:min(300px,100%); min-width:190px; height:36px; margin:2px 0 6px; }
+.voice-label { color:var(--muted); font-size:11px; margin:2px 0 6px; }
+.attachment-link { display:inline-block; margin-top:3px; }
