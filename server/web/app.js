@@ -56,6 +56,10 @@
     authMethod: "code",
     roomSignature: "",
     newBelow: 0,
+    callSignalCursor: 0,
+    activeCall: null,
+    voiceRecorder: null,
+    voiceChunks: [],
   };
 
   const ui = {};
@@ -450,6 +454,11 @@
     });
     ui.attachBtn.addEventListener("click", () => ui.fileInput.click());
     ui.fileInput.addEventListener("change", sendAttachment);
+    $("#voiceCallBtn").addEventListener("click", () => startCall("audio"));
+    $("#videoCallBtn").addEventListener("click", () => startCall("video"));
+    $("#screenShareBtn").addEventListener("click", () => startCall("screen"));
+    $("#endCallBtn").addEventListener("click", () => endCall(true));
+    $("#voiceMessageBtn").addEventListener("click", toggleVoiceMessage);
     ui.input.addEventListener("keydown", (event) => {
       if (event.key === "Enter" && !event.shiftKey) {
         event.preventDefault();
@@ -911,6 +920,7 @@
     renderMessages();
     setOnline(true);
     pollLoop();
+    pollCallSignals();
     setTimeout(() => ui.input.focus(), 120);
   }
 
@@ -1758,6 +1768,218 @@
     ui.infoDialog.close();
     localStorage.removeItem(LS.room);
     location.reload();
+  }
+
+  /* ---------------------------------------------------------- calls/media */
+  async function sendCallSignal(toUsername, callId, kind, payload = {}) {
+    const res = await api("/api/calls/signal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ to_username: toUsername, call_id: callId, kind, payload }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "Could not send call signal.");
+  }
+
+  function callPeerConfig() {
+    return { iceServers: [{ urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }] };
+  }
+
+  async function startCall(mode) {
+    if (state.activeCall) { toast("Finish the current call first.", "error"); return; }
+    const target = window.prompt("Username to call (must share a server with you):");
+    if (!target || !target.trim()) return;
+    if (!navigator.mediaDevices) { toast("This app cannot access media on this device/browser.", "error"); return; }
+    let stream;
+    try {
+      if (mode === "screen") {
+        if (!navigator.mediaDevices.getDisplayMedia) throw new Error("Screen sharing is not supported by this client. Android may require a native MediaProjection implementation.");
+        stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+        try {
+          const mic = await navigator.mediaDevices.getUserMedia({ audio: true });
+          mic.getAudioTracks().forEach((track) => stream.addTrack(track));
+        } catch (_) {}
+      } else {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+          video: mode === "video" ? { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 24, max: 30 } } : false,
+        });
+      }
+      const callId = uid();
+      const call = { id: callId, peerUsername: target.trim(), mode, pc: new RTCPeerConnection(callPeerConfig()), stream, pendingIce: [], started: true };
+      state.activeCall = call;
+      configureCallDialog(call, "Calling " + call.peerUsername + "…");
+      for (const track of stream.getTracks()) call.pc.addTrack(track, stream);
+      call.pc.onicecandidate = (event) => {
+        if (event.candidate) sendCallSignal(call.peerUsername, call.id, "ice", { candidate: event.candidate.toJSON() }).catch((err) => toast(err.message, "error"));
+      };
+      call.pc.ontrack = (event) => attachRemoteMedia(call, event);
+      call.pc.onconnectionstatechange = () => {
+        const status = $("#callStatus");
+        if (state.activeCall === call && status) status.textContent = call.pc.connectionState;
+        if (call.pc.connectionState === "failed") toast("Call connection failed. This network may need a TURN relay.", "error");
+      };
+      if (!$("#callDialog").open) $("#callDialog").showModal();
+      const offer = await call.pc.createOffer();
+      await call.pc.setLocalDescription(offer);
+      await sendCallSignal(call.peerUsername, call.id, "offer", { description: call.pc.localDescription.toJSON(), mode });
+      if (mode === "screen") {
+        stream.getVideoTracks()[0]?.addEventListener("ended", () => endCall(true), { once: true });
+      }
+    } catch (err) {
+      if (stream) stream.getTracks().forEach((track) => track.stop());
+      if (state.activeCall) await endCall(false);
+      toast(err.message || "Could not start call.", "error");
+    }
+  }
+
+  function configureCallDialog(call, statusText) {
+    $("#callTitle").textContent = call.mode === "screen" ? "Screen share" : call.mode === "video" ? "Video call" : "Voice call";
+    $("#callStatus").textContent = statusText;
+    $("#callHelp").textContent = "Peer-to-peer WebRTC. STUN is configured; some NATs/firewalls require a separately hosted TURN relay. Screen capture depends on client permissions.";
+    $("#remoteVideo").hidden = call.mode === "audio";
+    if (!$("#callDialog").open) $("#callDialog").showModal();
+  }
+
+  function attachRemoteMedia(call, event) {
+    if (state.activeCall !== call) return;
+    const stream = event.streams && event.streams[0];
+    if (!stream) return;
+    $("#remoteVideo").srcObject = stream;
+    $("#remoteAudio").srcObject = stream;
+    $("#remoteVideo").hidden = call.mode === "audio";
+    $("#callStatus").textContent = "Connected";
+  }
+
+  async function pollCallSignals() {
+    while (!state.stopped) {
+      try {
+        const res = await api("/api/calls/signals?after=" + state.callSignalCursor);
+        if (res.status === 401) break;
+        if (res.ok) {
+          const data = await res.json();
+          for (const signal of (data.signals || [])) {
+            state.callSignalCursor = Math.max(state.callSignalCursor, Number(signal.id) || 0);
+            await handleCallSignal(signal);
+          }
+        }
+      } catch (_) {}
+      await sleep(1800);
+    }
+  }
+
+  async function handleCallSignal(signal) {
+    const payload = signal.payload || {};
+    let call = state.activeCall;
+    if (signal.kind === "offer") {
+      if (call || !window.confirm(signal.from_username + " is calling (" + (payload.mode || "audio") + "). Answer?")) {
+        try { await sendCallSignal(signal.from_username, signal.call_id, "decline", {}); } catch (_) {}
+        return;
+      }
+      try {
+        const mode = payload.mode || "audio";
+        if (!navigator.mediaDevices?.getUserMedia) throw new Error("Microphone/camera access is unavailable in this client.");
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+          video: mode === "video" ? { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 24, max: 30 } } : false,
+        });
+        call = { id: signal.call_id, peerUsername: signal.from_username, mode, pc: new RTCPeerConnection(callPeerConfig()), stream, pendingIce: [], started: false };
+        state.activeCall = call;
+        configureCallDialog(call, "Answering " + call.peerUsername + "…");
+        stream.getTracks().forEach((track) => call.pc.addTrack(track, stream));
+        call.pc.onicecandidate = (event) => {
+          if (event.candidate) sendCallSignal(call.peerUsername, call.id, "ice", { candidate: event.candidate.toJSON() }).catch(() => {});
+        };
+        call.pc.ontrack = (event) => attachRemoteMedia(call, event);
+        call.pc.onconnectionstatechange = () => {
+          if (state.activeCall === call) $("#callStatus").textContent = call.pc.connectionState;
+        };
+        await call.pc.setRemoteDescription(payload.description);
+        for (const candidate of call.pendingIce.splice(0)) await call.pc.addIceCandidate(candidate);
+        const answer = await call.pc.createAnswer();
+        await call.pc.setLocalDescription(answer);
+        await sendCallSignal(call.peerUsername, call.id, "answer", { description: call.pc.localDescription.toJSON() });
+      } catch (err) {
+        toast(err.message || "Could not answer call.", "error");
+        await endCall(true);
+      }
+      return;
+    }
+    if (!call || call.id !== signal.call_id) return;
+    if (signal.kind === "answer" && payload.description) {
+      await call.pc.setRemoteDescription(payload.description);
+      for (const candidate of call.pendingIce.splice(0)) await call.pc.addIceCandidate(candidate);
+      $("#callStatus").textContent = "Connecting…";
+    } else if (signal.kind === "ice" && payload.candidate) {
+      if (call.pc.remoteDescription) await call.pc.addIceCandidate(payload.candidate);
+      else call.pendingIce.push(payload.candidate);
+    } else if (signal.kind === "end" || signal.kind === "decline") {
+      toast(signal.kind === "decline" ? signal.from_username + " declined the call." : signal.from_username + " ended the call.");
+      await endCall(false);
+    }
+  }
+
+  async function endCall(notifyPeer) {
+    const call = state.activeCall;
+    if (!call) { if ($("#callDialog").open) $("#callDialog").close(); return; }
+    state.activeCall = null;
+    if (notifyPeer) {
+      try { await sendCallSignal(call.peerUsername, call.id, "end", {}); } catch (_) {}
+    }
+    try { call.pc.close(); } catch (_) {}
+    call.stream?.getTracks().forEach((track) => track.stop());
+    $("#remoteVideo").srcObject = null;
+    $("#remoteAudio").srcObject = null;
+    if ($("#callDialog").open) $("#callDialog").close();
+  }
+
+  async function toggleVoiceMessage() {
+    const button = $("#voiceMessageBtn");
+    if (state.voiceRecorder && state.voiceRecorder.state === "recording") {
+      state.voiceRecorder.stop();
+      button.textContent = "🎙";
+      button.title = "Record a short voice message";
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+      toast("Voice recording is not supported by this client.", "error");
+      return;
+    }
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      state.voiceRecorder = recorder;
+      state.voiceChunks = [];
+      recorder.ondataavailable = (event) => { if (event.data.size) state.voiceChunks.push(event.data); };
+      recorder.onerror = () => toast("Voice recording failed.", "error");
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((track) => track.stop());
+        state.voiceRecorder = null;
+        button.textContent = "🎙";
+        button.title = "Record a short voice message";
+        const blob = new Blob(state.voiceChunks, { type: recorder.mimeType || "audio/webm" });
+        state.voiceChunks = [];
+        if (!blob.size) return;
+        if (blob.size > 40 * 1024) {
+          toast("Voice clip is over 40 KB. Record a shorter message (about 5–8 seconds).", "error");
+          return;
+        }
+        try {
+          const data = bytesToB64(new Uint8Array(await blob.arrayBuffer()));
+          await sendText("__TS_ATTACHMENT_V1__:" + JSON.stringify({ name: "voice-message.webm", type: blob.type || "audio/webm", data }), null);
+          toast("Encrypted voice message sent.");
+        } catch (err) { toast(err.message || "Could not send voice message.", "error"); }
+      };
+      recorder.start();
+      button.textContent = "■";
+      button.title = "Stop and send voice message";
+      toast("Recording… tap ■ to stop and send (short clips only).");
+      setTimeout(() => { if (state.voiceRecorder === recorder && recorder.state === "recording") recorder.stop(); }, 8000);
+    } catch (err) {
+      stream?.getTracks().forEach((track) => track.stop());
+      toast("Microphone permission was denied or unavailable.", "error");
+    }
   }
 
   /* ------------------------------------------------------------------- init */
