@@ -11,7 +11,10 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import tkinter as tk
+import urllib.request
+import ipaddress
 from pathlib import Path
 from tkinter import messagebox, ttk
 
@@ -55,6 +58,8 @@ class HostSettingsApp:
 
         self.port = tk.StringVar(value="8443")
         self.public_url = tk.StringVar(value="")
+        self.public_ipv6 = tk.StringVar(value="Checking…")
+        self.client_address = tk.StringVar(value="Address unavailable")
         self.expected_clients = tk.IntVar(value=2)
         self.concurrent_media = tk.IntVar(value=1)
         self.status = tk.StringVar(value="Ready to configure")
@@ -66,6 +71,9 @@ class HostSettingsApp:
         self._style()
         self._build()
         self._update_estimate()
+        self._refresh_ipv6()
+        self.port.trace_add("write", lambda *_: self._update_address())
+        self.public_url.trace_add("write", lambda *_: self._update_address())
         self.root.protocol("WM_DELETE_WINDOW", self._close)
         self.root.after(600, self._watch_process)
 
@@ -104,8 +112,18 @@ class HostSettingsApp:
             messagebox.showwarning("Settings reset", "The saved settings could not be read. Defaults will be used.")
 
     def _build(self) -> None:
-        outer = ttk.Frame(self.root, padding=24)
-        outer.pack(fill="both", expand=True)
+        shell = ttk.Frame(self.root)
+        shell.pack(fill="both", expand=True)
+        canvas = tk.Canvas(shell, bg="#080d13", highlightthickness=0)
+        scrollbar = ttk.Scrollbar(shell, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+        outer = ttk.Frame(canvas, padding=24)
+        win = canvas.create_window((0, 0), window=outer, anchor="nw")
+        outer.bind("<Configure>", lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(win, width=e.width))
+        canvas.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(int(-e.delta / 120), "units"))
         ttk.Label(outer, text="TERMINUS  /  HOST MANAGER", style="Muted.TLabel").pack(anchor="w")
         ttk.Label(outer, text="Configure your private server", style="Title.TLabel").pack(anchor="w", pady=(5, 3))
         ttk.Label(outer, text="Choose the capabilities clients can see. Your vault phrase and pairing code are kept in the data folder.", wraplength=640, style="Muted.TLabel").pack(anchor="w", pady=(0, 18))
@@ -119,7 +137,16 @@ class HostSettingsApp:
         ttk.Entry(row, textvariable=self.port, width=9).pack(side="left", padx=(10, 20))
         ttk.Label(row, text="Public URL (optional)", style="TLabel").pack(side="left")
         ttk.Entry(row, textvariable=self.public_url).pack(side="left", fill="x", expand=True, padx=(10, 0))
-        ttk.Label(network, text="An address change does not rotate your secrets. Remote clients still need a reachable IPv6 address or hostname.", style="Muted.TLabel", wraplength=620).pack(anchor="w", pady=(8, 0))
+        ttk.Label(network, text="PUBLIC IPv6 ADDRESS", style="Muted.TLabel").pack(anchor="w", pady=(12, 4))
+        iprow = ttk.Frame(network, style="Panel.TFrame"); iprow.pack(fill="x")
+        ttk.Entry(iprow, textvariable=self.public_ipv6, state="readonly").pack(side="left", fill="x", expand=True)
+        ttk.Button(iprow, text="Copy IPv6", command=lambda: self._copy_public_text(self.public_ipv6.get())).pack(side="left", padx=6)
+        ttk.Button(iprow, text="Refresh", command=self._refresh_ipv6).pack(side="left")
+        ttk.Label(network, text="CLIENT ADDRESS", style="Muted.TLabel").pack(anchor="w", pady=(10, 4))
+        arow = ttk.Frame(network, style="Panel.TFrame"); arow.pack(fill="x")
+        ttk.Entry(arow, textvariable=self.client_address, state="readonly").pack(side="left", fill="x", expand=True)
+        ttk.Button(arow, text="Copy address", command=lambda: self._copy_public_text(self.client_address.get())).pack(side="left", padx=6)
+        ttk.Label(network, text="IPv6 is formatted with brackets in the URL. Your carrier/router must allow inbound IPv6; changing networks can change this address without changing saved credentials.", style="Muted.TLabel", wraplength=620).pack(anchor="w", pady=(8, 0))
 
         secrets_panel = ttk.Frame(outer, style="Panel.TFrame", padding=14)
         secrets_panel.pack(fill="x", pady=(0, 12))
@@ -171,6 +198,47 @@ class HostSettingsApp:
         self.stop_button = ttk.Button(footer, text="Stop server", command=self.stop_server, state="disabled")
         self.stop_button.pack(side="right", padx=(0, 8))
         ttk.Label(outer, text=f"Settings: {CONFIG}", style="Muted.TLabel", wraplength=650).pack(anchor="w", pady=(14, 0))
+
+    def _copy_public_text(self, value: str) -> None:
+        value = (value or "").strip()
+        if not value or value in {"Checking…", "Address unavailable", "IPv6 unavailable"}:
+            messagebox.showwarning("Unavailable", "There is no address to copy yet."); return
+        self.root.clipboard_clear(); self.root.clipboard_append(value); self.root.update_idletasks()
+        self.status.set("Address copied to clipboard")
+
+    def _update_address(self) -> None:
+        custom = self.public_url.get().strip().rstrip("/")
+        if custom:
+            self.client_address.set(custom); return
+        try:
+            port = int(self.port.get().strip())
+            if not 1 <= port <= 65535: raise ValueError
+            ip = ipaddress.IPv6Address(self.public_ipv6.get().strip())
+            self.client_address.set(f"https://[{ip.compressed}]:{port}")
+        except (ValueError, ipaddress.AddressValueError, tk.TclError):
+            self.client_address.set("IPv6 unavailable — set Public URL or refresh")
+
+    def _refresh_ipv6(self) -> None:
+        self.public_ipv6.set("Checking…"); self._update_address()
+        def worker() -> None:
+            result = ""
+            for url in ("https://api6.ipify.org", "https://api64.ipify.org"):
+                try:
+                    req = urllib.request.Request(url, headers={"User-Agent": "TerminusSecretsHostManager/1.0"})
+                    with urllib.request.urlopen(req, timeout=5) as response:
+                        candidate = response.read(128).decode("ascii", "ignore").strip()
+                    parsed = ipaddress.ip_address(candidate)
+                    if isinstance(parsed, ipaddress.IPv6Address) and not parsed.is_private and not parsed.is_loopback:
+                        result = parsed.compressed; break
+                except (OSError, ValueError):
+                    pass
+            self.root.after(0, lambda: self._set_ipv6(result))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _set_ipv6(self, value: str) -> None:
+        self.public_ipv6.set(value or "IPv6 unavailable")
+        self._update_address()
+        self.status.set("IPv6 detected; verify inbound firewall access" if value else "Could not detect public IPv6")
 
     def _estimate_mb(self) -> int:
         # Estimate scales with configured clients and concurrent active media.
