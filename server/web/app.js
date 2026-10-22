@@ -970,7 +970,7 @@
 
   /* ------------------------------------------------------------------- rooms */
   function renderRooms() {
-    const signature = state.rooms.map((room) => `${room.id}:${room.name}:${room.description || ""}:${room.kind || "text"}`).join("|") +
+    const signature = state.rooms.map((room) => `${room.id}:${room.name}:${room.description || ""}:${room.category || ""}:${room.kind || "text"}`).join("|") +
       "|" + state.servers.map((server) => `${server.id}:${server.name}:${server.role}`).join("|") +
       `|${state.activeServerId}|${state.currentRoom}|` +
       Array.from(state.unread.entries()).map(([id, count]) => `${id}=${count}`).join(",");
