@@ -44,6 +44,7 @@
     syncSince: "",
     replyTo: null,
     currentRoom: localStorage.getItem(LS.room) || "general",
+    editingRoomId: null,
     unread: new Map(),
     lastRendered: { day: null, device: null, at: 0 },
     polling: false,
@@ -347,6 +348,10 @@
     ui.changeHostBtn = $("#changeHostBtn");
     ui.roomDialog = $("#roomDialog");
     ui.roomForm = $("#roomForm");
+    ui.roomDialogTitle = $("#roomDialogTitle");
+    ui.roomSubmitBtn = $("#roomSubmitBtn");
+    ui.deleteRoomBtn = $("#deleteRoomBtn");
+    ui.addRoomMemberBtn = $("#addRoomMemberBtn");
     ui.roomNameInput = $("#roomNameInput");
     ui.roomCategoryInput = $("#roomCategoryInput");
     ui.roomDescriptionInput = $("#roomDescriptionInput");
@@ -514,6 +519,13 @@
       ui.roomNameInput.value = "";
       ui.roomCategoryInput.value = "";
       ui.roomDescriptionInput.value = "";
+      ui.roomPrivateInput.checked = false;
+      ui.roomPrivateInput.disabled = false;
+      state.editingRoomId = null;
+      ui.roomDialogTitle.textContent = "New channel";
+      ui.roomSubmitBtn.textContent = "Create channel";
+      ui.deleteRoomBtn.hidden = true;
+      ui.addRoomMemberBtn.hidden = true;
       ui.roomDialog.showModal();
       setTimeout(() => ui.roomNameInput.focus(), 40);
     });
@@ -559,6 +571,8 @@
     });
 
     ui.roomForm.addEventListener("submit", createRoom);
+    ui.deleteRoomBtn.addEventListener("click", deleteEditingRoom);
+    ui.addRoomMemberBtn.addEventListener("click", addEditingRoomMember);
     ui.roomDialog.querySelectorAll("[data-close]").forEach((button) => {
       button.addEventListener("click", () => ui.roomDialog.close());
     });
@@ -1671,7 +1685,8 @@
     const category = ui.roomCategoryInput.value.trim().replace(/\s+/g, " ");
     const description = ui.roomDescriptionInput.value.trim().replace(/\s+/g, " ");
     if (!name) {
-      ui.roomError.textContent = "Give the group a name.";
+      ui.roomError.textContent = "Give the channel a name.";
+      ui.roomNameInput.focus();
       return;
     }
     ui.roomError.textContent = "";
@@ -1679,91 +1694,107 @@
       ui.roomError.textContent = "Create or join a server first.";
       return;
     }
+    const editing = Boolean(state.editingRoomId);
     try {
-      const res = await api("/api/rooms", {
+      const endpoint = editing ? "/api/rooms/manage" : "/api/rooms";
+      const payload = editing
+        ? { action: "rename", room_id: state.editingRoomId, name, category, description }
+        : { name, description, category, server_id: state.activeServerId, private: ui.roomPrivateInput.checked };
+      const res = await api(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, description, category, server_id: state.activeServerId, private: ui.roomPrivateInput.checked }),
+        body: JSON.stringify(payload),
       });
-      if (!res.ok) {
-        let detail = "Could not create the group.";
-        try { detail = (await res.json()).error || detail; } catch (_) {}
-        throw new Error(detail);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || (editing ? "Could not update the channel." : "Could not create the channel."));
+      if (editing) {
+        state.rooms = state.rooms.map((room) => room.id === data.id ? data : room);
+        ui.roomDialog.close();
+        state.editingRoomId = null;
+        renderRooms();
+        updateHeader();
+        toast("Channel updated.");
+      } else {
+        ui.roomDialog.close();
+        ui.roomPrivateInput.checked = false;
+        if (!state.rooms.some((room) => room.id === data.id)) state.rooms.push(data);
+        selectRoom(data.id);
       }
-      const room = await res.json();
-      ui.roomDialog.close();
-      ui.roomPrivateInput.checked = false;
-      if (!state.rooms.some((r) => r.id === room.id)) state.rooms.push(room);
-      selectRoom(room.id);
     } catch (err) {
-      ui.roomError.textContent = err.message;
+      ui.roomError.textContent = err.message || "Channel operation failed.";
     }
   }
 
   async function manageRoom(room) {
-    const choices = room.kind === "private" ? "rename, delete, or add-member" : "rename or delete";
-    const choice = window.prompt(`Manage "${room.name}": type ${choices}`);
-    if (choice === null) return;
-    const action = choice.trim().toLowerCase();
-    if (action === "add-member" && room.kind === "private") {
-      const username = window.prompt("Username of a member who has already joined this server:");
-      if (username === null || !username.trim()) return;
-      try {
-        const res = await api("/api/rooms/member", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ room_id: room.id, username: username.trim() }) });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || "Could not add private-channel member.");
-        toast(`${username} added to #${room.name}.`);
-        await refreshSync();
-      } catch (err) { toast(err.message || "Could not add member.", "error"); }
-      return;
-    }
-    if (action !== "rename" && action !== "delete") {
-      toast("Choose rename, delete, or add-member for private channels.", "error");
-      return;
-    }
-    let name = room.name;
-    let description = room.description || "";
-    if (action === "rename") {
-      name = window.prompt("New group name:", room.name);
-      if (name === null) return;
-      name = name.trim().replace(/\s+/g, " ");
-      if (!name) { toast("A group name is required.", "error"); return; }
-      description = window.prompt("Group description:", description);
-      if (description === null) return;
-    } else if (!window.confirm(`Delete "${room.name}" and permanently remove its stored messages?`)) {
-      return;
-    }
+    ui.roomError.textContent = "";
+    state.editingRoomId = room.id;
+    ui.roomNameInput.value = room.name || "";
+    ui.roomCategoryInput.value = room.category || "";
+    ui.roomDescriptionInput.value = room.description || "";
+    ui.roomPrivateInput.checked = room.kind === "private";
+    ui.roomPrivateInput.disabled = true;
+    ui.roomDialogTitle.textContent = `Edit #${room.name}`;
+    ui.roomSubmitBtn.textContent = "Save changes";
+    ui.deleteRoomBtn.hidden = room.name.toLowerCase() === "general";
+    ui.addRoomMemberBtn.hidden = room.kind !== "private";
+    ui.roomDialog.showModal();
+    setTimeout(() => ui.roomNameInput.focus(), 40);
+  }
+
+  async function deleteEditingRoom() {
+    const room = state.rooms.find((item) => item.id === state.editingRoomId);
+    if (!room) { ui.roomDialog.close(); return; }
+    if (!window.confirm(`Delete #${room.name} and permanently remove its messages? This cannot be undone.`)) return;
+    ui.deleteRoomBtn.disabled = true;
     try {
       const res = await api("/api/rooms/manage", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, room_id: room.id, name, description }),
+        body: JSON.stringify({ action: "delete", room_id: room.id }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Group management failed.");
-      if (action === "rename") {
-        state.rooms = state.rooms.map((item) => item.id === room.id ? data : item);
-        renderRooms();
-        updateHeader();
-        toast("Group renamed.");
-      } else {
-        state.rooms = state.rooms.filter((item) => item.id !== room.id);
-        state.messages = state.messages.filter((item) => item.room_id !== room.id);
-        state.unread.delete(room.id);
-        if (state.currentRoom === room.id) {
-          const nextRoom = state.rooms.find((item) => item.kind !== "dm" && item.server_id === state.activeServerId) || state.rooms[0];
-          state.currentRoom = nextRoom?.id || "general";
-          localStorage.setItem(LS.room, state.currentRoom);
-          renderRooms();
-          updateHeader();
-          renderMessages();
-        } else {
-          renderRooms();
-        }
-        toast("Group deleted.");
+      if (!res.ok) throw new Error(data.error || "Could not delete the channel.");
+      state.rooms = state.rooms.filter((item) => item.id !== room.id);
+      state.messages = state.messages.filter((item) => item.room_id !== room.id);
+      state.unread.delete(room.id);
+      if (state.currentRoom === room.id) {
+        const next = state.rooms.find((item) => item.kind !== "dm" && item.server_id === state.activeServerId) || state.rooms[0];
+        state.currentRoom = next?.id || "general";
+        localStorage.setItem(LS.room, state.currentRoom);
       }
+      state.editingRoomId = null;
+      ui.roomDialog.close();
+      renderRooms();
+      updateHeader();
+      renderMessages();
+      toast("Channel deleted.");
     } catch (err) {
-      toast(err.message || "Group management failed.", "error");
+      ui.roomError.textContent = err.message || "Could not delete the channel.";
+    } finally {
+      ui.deleteRoomBtn.disabled = false;
+    }
+  }
+
+  async function addEditingRoomMember() {
+    const room = state.rooms.find((item) => item.id === state.editingRoomId);
+    if (!room || room.kind !== "private") return;
+    const username = window.prompt("Username of a member who has already joined this server:");
+    if (username === null || !username.trim()) return;
+    ui.addRoomMemberBtn.disabled = true;
+    try {
+      const res = await api("/api/rooms/member", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ room_id: room.id, username: username.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not add private-channel member.");
+      toast(`${username.trim()} added to #${room.name}.`);
+      await refreshSync();
+    } catch (err) {
+      ui.roomError.textContent = err.message || "Could not add member.";
+    } finally {
+      ui.addRoomMemberBtn.disabled = false;
     }
   }
 
