@@ -349,7 +349,9 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         setContentView(root);
-        webView.loadUrl(serverUrl + "/app/");
+        String savedHosts = prefs.getString(PREF_HOSTS, "");
+        String hostQuery = savedHosts.isEmpty() ? "" : "?tsSavedHosts=" + Uri.encode(savedHosts);
+        webView.loadUrl(serverUrl + "/app/" + hostQuery);
     }
 
     private void createNotificationChannel() {
