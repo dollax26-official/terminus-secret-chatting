@@ -972,3 +972,6 @@ button:focus:not(:focus-visible) { outline: none; }
 
 .typing-indicator { min-height:16px; margin:0 24px 4px; color:var(--faint); font-size:11px; font-style:italic; }
 .typing-indicator[hidden] { display:none; }
+
+.mention { color:var(--blue); font-weight:600; background:rgba(111,157,255,.10); border-radius:4px; padding:0 2px; }
+.mention-self { color:var(--accent); background:var(--accent-soft); }
