@@ -74,6 +74,7 @@ public class MainActivity extends Activity {
     private static final String PREF_URL = "server_url";
     private static final String PREF_PIN = "pin";
     private static final String PREF_NAME = "server_name";
+    private static final String PREF_HOSTS = "saved_hosts";
     private static final String NOTIFICATION_CHANNEL = "terminus_messages";
     private static final int NOTIFICATION_PERMISSION_REQUEST = 4701;
 
@@ -362,6 +363,52 @@ public class MainActivity extends Activity {
     }
 
     private final class NativeNotifications {
+        @JavascriptInterface
+        public void switchHost(String rawUrl, String savedHostsJson) {
+            String target = rawUrl == null ? "" : rawUrl.trim().replaceAll("/+$", "");
+            Uri parsed = Uri.parse(target);
+            if (!"https".equalsIgnoreCase(parsed.getScheme()) || parsed.getHost() == null
+                    || parsed.getUserInfo() != null) {
+                runOnUiThread(() -> Toast.makeText(MainActivity.this,
+                        "Enter a valid HTTPS host address.", Toast.LENGTH_LONG).show());
+                return;
+            }
+            if (parsed.getPort() < 0) {
+                target = target + ":8443";
+            }
+            final String hostUrl = target;
+            final String hostList = savedHostsJson == null ? "[]" : savedHostsJson;
+            executor.execute(() -> {
+                try {
+                    HostInfo info = probe(hostUrl);
+                    runOnUiThread(() -> new AlertDialog.Builder(MainActivity.this)
+                            .setTitle("Verify host identity")
+                            .setMessage("Host: " + info.serverName + "\nAddress: " + info.url
+                                    + "\nSHA-256 fingerprint:\n" + prettyFingerprint(info.fingerprint)
+                                    + "\n\nContinue only if this matches the host owner's console.")
+                            .setPositiveButton("Trust & reconnect", (dialog, which) -> {
+                                serverUrl = info.url;
+                                pin = info.fingerprint;
+                                prefs.edit().putString(PREF_URL, info.url)
+                                        .putString(PREF_PIN, info.fingerprint)
+                                        .putString(PREF_NAME, info.serverName)
+                                        .putString(PREF_HOSTS, hostList).apply();
+                                if (webView != null) {
+                                    webView.loadUrl(serverUrl + "/app/?tsSavedHosts="
+                                            + Uri.encode(hostList) + "&tsReconnect=1");
+                                } else {
+                                    showWeb();
+                                }
+                            })
+                            .setNegativeButton("Cancel", null)
+                            .show());
+                } catch (Exception ex) {
+                    runOnUiThread(() -> Toast.makeText(MainActivity.this,
+                            "Could not connect to host: " + ex.getMessage(), Toast.LENGTH_LONG).show());
+                }
+            });
+        }
+
         @JavascriptInterface
         public void notifyMessage(String roomName) {
             final String safeRoom = (roomName == null || roomName.trim().isEmpty())
