@@ -933,3 +933,10 @@ button:focus:not(:focus-visible) { outline: none; }
 .reply-reference { margin-bottom: 6px; padding-left: 9px; border-left: 2px solid var(--accent); color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 .deleted-bubble { color: var(--muted) !important; font-style: italic; }
 .msg:has(.message-action[title="Unpin message"]) .bubble::after { content: "  📌"; font-size: 11px; }
+
+
+/* Server switcher and invite controls */
+.server-switcher { display: grid; gap: 8px; padding: 10px 14px 16px; border-bottom: 1px solid var(--line-soft); }
+#serverSelect { width: 100%; min-width: 0; padding: 10px 11px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); color: var(--text); }
+.server-actions { display: flex; gap: 5px; flex-wrap: wrap; }
+.server-actions .ghost-btn { flex: 1; min-width: 0; padding: 7px 8px; font-size: 11px; }
