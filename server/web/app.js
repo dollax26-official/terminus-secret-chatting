@@ -513,7 +513,7 @@
     $("#switchAccountBtn").addEventListener("click", async () => {
       state.stopped = true;
       await endCall(false);
-      if (state.voiceRecorder && state.voiceRecorder.state === "recording") state.voiceRecorder.stop();
+      discardVoiceRecording();
       if (state.accountToken) {
         try {
           await fetch("/api/accounts/logout", { method: "POST", headers: authHeaders({ "Content-Type": "application/json" }), body: "{}" });
@@ -1778,6 +1778,7 @@
     if (!sure) return;
     state.stopped = true;
     void endCall(false);
+    discardVoiceRecording();
     state.key = null;
     forgetToken();
     ui.infoDialog.close();
@@ -1947,6 +1948,18 @@
     $("#remoteVideo").srcObject = null;
     $("#remoteAudio").srcObject = null;
     if ($("#callDialog").open) $("#callDialog").close();
+  }
+
+  function discardVoiceRecording() {
+    const recorder = state.voiceRecorder;
+    if (!recorder) return;
+    recorder.onstop = null;
+    try { recorder.stream.getTracks().forEach((track) => track.stop()); } catch (_) {}
+    try { if (recorder.state !== "inactive") recorder.stop(); } catch (_) {}
+    state.voiceRecorder = null;
+    state.voiceChunks = [];
+    const button = $("#voiceMessageBtn");
+    if (button) { button.textContent = "🎙"; button.title = "Record a short voice message"; }
   }
 
   async function toggleVoiceMessage() {
