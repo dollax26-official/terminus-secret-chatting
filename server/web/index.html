@@ -192,6 +192,11 @@
       <label class="chat-search" aria-label="Search messages">
         <span>⌕</span><input id="searchInput" type="search" placeholder="Search messages…" autocomplete="off">
       </label>
+      <div class="call-actions" aria-label="Call actions">
+        <button id="voiceCallBtn" class="icon-btn" type="button" title="Start voice call" aria-label="Start voice call">☎</button>
+        <button id="videoCallBtn" class="icon-btn" type="button" title="Start video call" aria-label="Start video call">▣</button>
+        <button id="screenShareBtn" class="icon-btn" type="button" title="Share screen" aria-label="Share screen">▤</button>
+      </div>
       <div class="head-badges">
         <span class="badge lock-badge">
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
@@ -212,6 +217,7 @@
     <p id="typingIndicator" class="typing-indicator" hidden></p>
 
     <form id="composer" class="composer" autocomplete="off">
+      <button id="voiceMessageBtn" class="attach-btn" type="button" title="Record a short voice message" aria-label="Record a voice message">🎙</button>
       <button id="attachBtn" class="attach-btn" type="button" title="Attach a file" aria-label="Attach a file">＋</button>
       <input id="fileInput" type="file" hidden>
       <textarea id="input" rows="1" placeholder="Message #general"
@@ -228,6 +234,22 @@
 </section>
 
 <!-- ============================ DIALOGS ============================ -->
+<dialog id="callDialog" class="dialog call-dialog">
+  <form method="dialog" class="dialog-inner call-dialog-inner">
+    <header class="dialog-head">
+      <h3 id="callTitle">Call</h3>
+      <span id="callStatus" class="badge">Connecting…</span>
+    </header>
+    <video id="remoteVideo" autoplay playsinline></video>
+    <audio id="remoteAudio" autoplay></audio>
+    <p id="callHelp" class="muted">Calls use peer-to-peer WebRTC. Some networks require a TURN relay, which is not bundled.</p>
+    <footer class="dialog-foot">
+      <button id="endCallBtn" type="button" class="danger-btn">End call</button>
+      <button value="close" class="ghost-btn compact">Close</button>
+    </footer>
+  </form>
+</dialog>
+
 <dialog id="infoDialog" class="dialog">
   <form method="dialog" class="dialog-inner">
     <header class="dialog-head">
