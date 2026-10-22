@@ -235,6 +235,21 @@ def init_db(passphrase: str) -> None:
                 created_at TEXT NOT NULL,
                 expires_at INTEGER NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS servers (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                invite_code TEXT NOT NULL UNIQUE,
+                owner_account_id TEXT REFERENCES accounts(id),
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS server_members (
+                server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+                account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                role TEXT NOT NULL DEFAULT 'member',
+                joined_at TEXT NOT NULL,
+                PRIMARY KEY(server_id, account_id)
+            );
             CREATE INDEX IF NOT EXISTS idx_account_sessions_expiry ON account_sessions(expires_at);
             CREATE TABLE IF NOT EXISTS devices (
                 id TEXT PRIMARY KEY,
@@ -248,7 +263,8 @@ def init_db(passphrase: str) -> None:
             CREATE TABLE IF NOT EXISTS rooms (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                server_id TEXT NOT NULL DEFAULT 'srv_default'
             );
             CREATE TABLE IF NOT EXISTS messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -288,6 +304,15 @@ def init_db(passphrase: str) -> None:
         device_columns = [row["name"] for row in conn.execute("PRAGMA table_info(devices)")]
         if "account_id" not in device_columns:
             conn.execute("ALTER TABLE devices ADD COLUMN account_id TEXT REFERENCES accounts(id)")
+
+        room_columns = [row["name"] for row in conn.execute("PRAGMA table_info(rooms)")]
+        if "server_id" not in room_columns:
+            conn.execute("ALTER TABLE rooms ADD COLUMN server_id TEXT NOT NULL DEFAULT 'srv_default'")
+        if not conn.execute("SELECT 1 FROM servers LIMIT 1").fetchone():
+            conn.execute(
+                "INSERT INTO servers(id, name, description, invite_code, owner_account_id, created_at) VALUES(?,?,?,?,?,?)",
+                ("srv_default", "My Server", "Default Terminus server", secrets.token_urlsafe(9), None, now_iso()),
+            )
 
         if not conn.execute("SELECT 1 FROM rooms WHERE id='general'").fetchone():
             conn.execute(
@@ -498,7 +523,8 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError:
                 wait = 0
             updated_after = (query.get("updated_after") or [""])[0][:40]
-            self._sync(device, max(after, 0), wait, updated_after)
+            server_id = (query.get("server_id") or [""])[0][:80]
+            self._sync(device, max(after, 0), wait, updated_after, server_id)
             return
 
         if path.startswith("/api/"):
@@ -512,7 +538,7 @@ class Handler(BaseHTTPRequestHandler):
 
         self._error(404, "not found")
 
-    def _sync(self, device: sqlite3.Row, after: int, wait: int, updated_after: str = "") -> None:
+    def _sync(self, device: sqlite3.Row, after: int, wait: int, updated_after: str = "", server_id: str = "") -> None:
         deadline = time.monotonic() + wait
         while True:
             # Hold the condition lock while checking SQLite. The previous
@@ -533,20 +559,35 @@ class Handler(BaseHTTPRequestHandler):
                                                WHERE message_id=m.id GROUP BY emoji) r), '[]') AS reactions_json
                         FROM messages m JOIN devices d ON d.id = m.device_id
                         LEFT JOIN accounts a ON a.id = d.account_id
-                        WHERE m.id > ? OR (m.edited_at IS NOT NULL AND m.edited_at > ?)
-                              OR (m.deleted_at IS NOT NULL AND m.deleted_at > ?)
+                        WHERE (m.id > ? OR (m.edited_at IS NOT NULL AND m.edited_at > ?)
+                              OR (m.deleted_at IS NOT NULL AND m.deleted_at > ?))
+                          AND m.room_id IN (
+                              SELECT r.id FROM rooms r JOIN server_members sm ON sm.server_id=r.server_id
+                              WHERE sm.account_id=? AND (?='' OR r.server_id=?)
+                          )
                          ORDER BY m.id ASC LIMIT 200
                         """,
-                        (after, updated_after, updated_after),
+                        (after, updated_after, updated_after, device["account_id"], server_id, server_id),
                     ).fetchall()
                     remaining = deadline - time.monotonic()
                     if rows or remaining <= 0 or wait == 0:
                         rooms = conn.execute(
-                            "SELECT id, name, description, created_at FROM rooms ORDER BY created_at ASC"
+                            """SELECT r.id, r.name, r.description, r.created_at, r.server_id
+                               FROM rooms r JOIN server_members sm ON sm.server_id=r.server_id
+                               WHERE sm.account_id=? AND (?='' OR r.server_id=?)
+                               ORDER BY r.created_at ASC""",
+                            (device["account_id"], server_id, server_id),
+                        ).fetchall()
+                        servers = conn.execute(
+                            """SELECT s.id, s.name, s.description, s.invite_code, sm.role
+                               FROM servers s JOIN server_members sm ON sm.server_id=s.id
+                               WHERE sm.account_id=? ORDER BY s.created_at ASC""",
+                            (device["account_id"],),
                         ).fetchall()
                         devices = conn.execute(
                             "SELECT id, name, created_at, last_seen FROM devices "
-                            "WHERE revoked=0 ORDER BY created_at ASC"
+                            "WHERE revoked=0 AND account_id=? ORDER BY created_at ASC",
+                            (device["account_id"],),
                         ).fetchall()
                         more = conn.execute(
                             "SELECT 1 FROM messages WHERE id > ? LIMIT 1",
@@ -577,9 +618,11 @@ class Handler(BaseHTTPRequestHandler):
                                     "name": row["name"],
                                     "description": row["description"],
                                     "created_at": row["created_at"],
+                                    "server_id": row["server_id"],
                                 }
                                 for row in rooms
                             ],
+                            "servers": [dict(row) for row in servers],
                             "devices": [
                                 {
                                     "id": row["id"],
@@ -644,6 +687,14 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/accounts/register":
             self._account_register(body)
+            return
+
+        if path == "/api/servers/create":
+            self._create_server(body)
+            return
+
+        if path == "/api/servers/join":
+            self._join_server(body)
             return
 
         if path == "/api/accounts/login":
@@ -817,6 +868,14 @@ class Handler(BaseHTTPRequestHandler):
         except sqlite3.IntegrityError:
             self._error(409, "That username is already registered.")
             return
+        with db() as conn:
+            server = conn.execute("SELECT id, owner_account_id FROM servers ORDER BY created_at ASC LIMIT 1").fetchone()
+            if server and server["owner_account_id"] is None:
+                conn.execute("UPDATE servers SET owner_account_id=? WHERE id=?", (account_id, server["id"]))
+                conn.execute(
+                    "INSERT OR IGNORE INTO server_members(server_id, account_id, role, joined_at) VALUES(?,?,?,?)",
+                    (server["id"], account_id, "owner", now_iso()),
+                )
         self._create_account_session(account_id, username)
 
     def _account_login(self, body: dict) -> None:
@@ -921,9 +980,13 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         with db() as conn:
-            room = conn.execute("SELECT 1 FROM rooms WHERE id=?", (room_id,)).fetchone()
+            room = conn.execute(
+                """SELECT r.server_id, sm.role FROM rooms r JOIN server_members sm ON sm.server_id=r.server_id
+                   WHERE r.id=? AND sm.account_id=?""",
+                (room_id, device["account_id"]),
+            ).fetchone()
             if room is None:
-                self._error(404, "room not found")
+                self._error(404, "channel not found or you are not a member")
                 return
             if reply_to_id is not None and not conn.execute(
                 "SELECT 1 FROM messages WHERE id=? AND room_id=? AND deleted_at IS NULL",
@@ -1057,17 +1120,80 @@ class Handler(BaseHTTPRequestHandler):
             MESSAGE_COND.notify_all()
         self._send_json(200, {"ok": True, "message_id": message_id, "pinned": pinned})
 
+    def _create_server(self, body: dict) -> None:
+        account_id = self._account_session_id()
+        if account_id is None:
+            self._error(401, "sign in first")
+            return
+        name = " ".join(str(body.get("name") or "").split())[:48]
+        description = " ".join(str(body.get("description") or "").split())[:160]
+        if not name:
+            self._error(400, "server name required")
+            return
+        server_id = "srv_" + secrets.token_hex(6)
+        invite_code = secrets.token_urlsafe(9)
+        with db() as conn:
+            conn.execute(
+                "INSERT INTO servers(id,name,description,invite_code,owner_account_id,created_at) VALUES(?,?,?,?,?,?)",
+                (server_id, name, description, invite_code, account_id, now_iso()),
+            )
+            conn.execute(
+                "INSERT INTO server_members(server_id,account_id,role,joined_at) VALUES(?,?,?,?)",
+                (server_id, account_id, "owner", now_iso()),
+            )
+            conn.execute(
+                "INSERT INTO rooms(id,name,description,created_at,server_id) VALUES(?,?,?,?,?)",
+                (server_id + "_general", "general", "General chat", now_iso(), server_id),
+            )
+        self._send_json(200, {"id": server_id, "name": name, "description": description, "invite_code": invite_code, "role": "owner"})
+
+    def _join_server(self, body: dict) -> None:
+        account_id = self._account_session_id()
+        if account_id is None:
+            self._error(401, "sign in first")
+            return
+        code = str(body.get("invite_code") or "").strip()
+        if not code:
+            self._error(400, "invite code required")
+            return
+        with db() as conn:
+            server = conn.execute("SELECT id,name,description FROM servers WHERE invite_code=?", (code,)).fetchone()
+            if server is None:
+                self._error(404, "invalid invite code")
+                return
+            conn.execute(
+                "INSERT OR IGNORE INTO server_members(server_id,account_id,role,joined_at) VALUES(?,?,?,?)",
+                (server["id"], account_id, "member", now_iso()),
+            )
+            member = conn.execute("SELECT role FROM server_members WHERE server_id=? AND account_id=?",
+                                  (server["id"], account_id)).fetchone()
+        self._send_json(200, {"id": server["id"], "name": server["name"], "description": server["description"], "role": member["role"]})
+
     def _create_room(self, device: sqlite3.Row, body: dict) -> None:
         name = " ".join(str(body.get("name") or "").split())[:32]
         description = " ".join(str(body.get("description") or "").split())[:120]
         if not name:
             self._error(400, "name required")
             return
-        room_id = "r_" + secrets.token_hex(5)
+        server_id = str(body.get("server_id") or "").strip()
+        if not server_id:
+            self._error(400, "server_id required")
+            return
         with db() as conn:
+            member = conn.execute(
+                "SELECT role FROM server_members WHERE server_id=? AND account_id=?",
+                (server_id, device["account_id"]),
+            ).fetchone()
+            if member is None:
+                self._error(403, "join this server first")
+                return
+            if member["role"] not in ("owner", "admin"):
+                self._error(403, "only server owners and admins can create channels")
+                return
+            room_id = "r_" + secrets.token_hex(5)
             conn.execute(
-                "INSERT INTO rooms(id, name, description, created_at) VALUES(?,?,?,?)",
-                (room_id, name, description, now_iso()),
+                "INSERT INTO rooms(id, name, description, created_at, server_id) VALUES(?,?,?,?,?)",
+                (room_id, name, description, now_iso(), server_id),
             )
         with MESSAGE_COND:
             MESSAGE_COND.notify_all()
