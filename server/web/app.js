@@ -880,9 +880,9 @@
     ui.passInput.value = "";
     ui.masterKeyInput.value = "";
     document.title = "Terminus Secrets";
-    ui.meName.textContent = state.deviceName || "This device";
-    ui.meMeta.textContent = "encrypted session";
-    ui.meAvatar.textContent = initials(state.deviceName);
+    ui.meName.textContent = state.account?.username || state.deviceName || "This device";
+    ui.meMeta.textContent = state.deviceName || "encrypted session";
+    ui.meAvatar.textContent = initials(state.account?.username || state.deviceName);
     ui.meAvatar.style.setProperty("--hue", hueOf(state.deviceId));
 
     if (!state.rooms.some((r) => r.id === state.currentRoom)) {
@@ -1451,6 +1451,8 @@
       state.activeServerId = data.id;
       localStorage.setItem("ts.server", data.id);
       await refreshSync();
+      const channel = state.rooms.find((room) => room.server_id === data.id && room.kind !== "dm");
+      if (channel) selectRoom(channel.id); else renderRooms();
       toast(`Created ${data.name}. Invite code: ${data.invite_code}`);
       window.alert(`Server created: ${data.name}\\nInvite code (share only with people you want to join):\\n${data.invite_code}`);
     } catch (err) { toast(err.message || "Could not create server.", "error"); }
@@ -1532,15 +1534,6 @@
     }
     const name = ui.roomNameInput.value.trim().replace(/\s+/g, " ");
     const description = ui.roomDescriptionInput.value.trim().replace(/\s+/g, " ");
-    let adminKey = "";
-    if (state.roomAdminRequired) {
-      adminKey = window.prompt("Enter the host master key (or the separately configured group-management key).");
-      if (adminKey === null) return;
-      if (!adminKey.trim()) {
-        ui.roomError.textContent = "The host master key is required.";
-        return;
-      }
-    }
     if (!name) {
       ui.roomError.textContent = "Give the group a name.";
       return;
@@ -1554,7 +1547,7 @@
       const res = await api("/api/rooms", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, description, server_id: state.activeServerId, admin_key: adminKey }),
+        body: JSON.stringify({ name, description, server_id: state.activeServerId }),
       });
       if (!res.ok) {
         let detail = "Could not create the group.";
@@ -1590,14 +1583,11 @@
     } else if (!window.confirm(`Delete "${room.name}" and permanently remove its stored messages?`)) {
       return;
     }
-    const adminKey = window.prompt("Enter the host master key (or the separately configured group-management key) to manage this group.");
-    if (adminKey === null) return;
-    if (!adminKey.trim()) { toast("The host group-management key is required.", "error"); return; }
     try {
       const res = await api("/api/rooms/manage", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, room_id: room.id, name, description, admin_key: adminKey }),
+        body: JSON.stringify({ action, room_id: room.id, name, description }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Group management failed.");
