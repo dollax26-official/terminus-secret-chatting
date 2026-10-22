@@ -29,6 +29,7 @@
     deviceId: localStorage.getItem(LS.device) || "",
     deviceName: localStorage.getItem(LS.name) || guessDeviceName(),
     server: null,
+    hostAdmin: false,
     salt: null,
     iterations: 600000,
     key: null,
@@ -45,6 +46,7 @@
     replyTo: null,
     currentRoom: localStorage.getItem(LS.room) || "general",
     editingRoomId: null,
+    roomMemberAction: "add",
     editingServerId: null,
     unread: new Map(),
     lastRendered: { day: null, device: null, at: 0 },
@@ -365,6 +367,7 @@
     ui.roomSubmitBtn = $("#roomSubmitBtn");
     ui.deleteRoomBtn = $("#deleteRoomBtn");
     ui.addRoomMemberBtn = $("#addRoomMemberBtn");
+    ui.removeRoomMemberBtn = $("#removeRoomMemberBtn");
     ui.roomNameInput = $("#roomNameInput");
     ui.roomCategoryInput = $("#roomCategoryInput");
     ui.roomDescriptionInput = $("#roomDescriptionInput");
@@ -472,6 +475,8 @@
     ui.roleSubmitBtn = $("#roleSubmitBtn");
     ui.roomMemberDialog = $("#roomMemberDialog");
     ui.roomMemberForm = $("#roomMemberForm");
+    ui.roomMemberDialogTitle = $("#roomMemberDialogTitle");
+    ui.roomMemberDialogDescription = $("#roomMemberDialogDescription");
     ui.roomMemberUsername = $("#roomMemberUsername");
     ui.roomMemberError = $("#roomMemberError");
     ui.roomMemberSubmitBtn = $("#roomMemberSubmitBtn");
@@ -578,11 +583,16 @@
       ui.roomDescriptionInput.value = "";
       ui.roomPrivateInput.checked = false;
       ui.roomPrivateInput.disabled = false;
+      ui.roomNameInput.disabled = false;
+      ui.roomCategoryInput.disabled = false;
+      ui.roomDescriptionInput.disabled = false;
       state.editingRoomId = null;
       ui.roomDialogTitle.textContent = "New channel";
       ui.roomSubmitBtn.textContent = "Create channel";
+      ui.roomSubmitBtn.hidden = false;
       ui.deleteRoomBtn.hidden = true;
       ui.addRoomMemberBtn.hidden = true;
+      ui.removeRoomMemberBtn.hidden = true;
       ui.roomDialog.showModal();
       setTimeout(() => ui.roomNameInput.focus(), 40);
     });
@@ -630,6 +640,7 @@
     ui.roomForm.addEventListener("submit", createRoom);
     ui.deleteRoomBtn.addEventListener("click", deleteEditingRoom);
     ui.addRoomMemberBtn.addEventListener("click", addEditingRoomMember);
+    ui.removeRoomMemberBtn.addEventListener("click", removeEditingRoomMember);
     ui.roomDialog.querySelectorAll("[data-close]").forEach((button) => {
       button.addEventListener("click", () => ui.roomDialog.close());
     });
@@ -849,6 +860,7 @@
     state.rooms = data.rooms || state.rooms;
     state.servers = data.servers || state.servers;
     state.serverMembers = data.server_members || state.serverMembers;
+    state.hostAdmin = Boolean(data.host_admin);
     if (!state.activeServerId || !state.servers.some((server) => server.id === state.activeServerId)) {
       state.activeServerId = state.servers[0]?.id || "";
       if (state.activeServerId) localStorage.setItem("ts.server", state.activeServerId);
@@ -1029,7 +1041,7 @@
   function renderRooms() {
     const signature = state.rooms.map((room) => `${room.id}:${room.name}:${room.description || ""}:${room.category || ""}:${room.kind || "text"}`).join("|") +
       "|" + state.servers.map((server) => `${server.id}:${server.name}:${server.role}`).join("|") +
-      `|${state.activeServerId}|${state.currentRoom}|` +
+      `|${state.activeServerId}|${state.currentRoom}|${state.hostAdmin}|` +
       Array.from(state.unread.entries()).map(([id, count]) => `${id}=${count}`).join(",");
     if (signature === state.roomSignature) return;
     state.roomSignature = signature;
@@ -1062,7 +1074,8 @@
         if (unread > 0 && room.id !== state.currentRoom) button.append(el("span", "unread", unread > 99 ? "99+" : String(unread)));
         button.addEventListener("click", () => selectRoom(room.id));
         channelFragment.append(button);
-        if (room.name !== "general" && ["owner", "admin"].includes(state.servers.find((server) => server.id === state.activeServerId)?.role)) {
+        const serverRole = state.servers.find((server) => server.id === state.activeServerId)?.role;
+        if (room.name !== "general" && (["owner", "admin"].includes(serverRole) || (state.hostAdmin && room.kind === "private"))) {
           const manage = el("button", "room-manage", "···");
           manage.type = "button"; manage.title = `Manage #${room.name}`;
           manage.addEventListener("click", (event) => { event.stopPropagation(); manageRoom(room); });
@@ -1963,17 +1976,26 @@
   async function manageRoom(room) {
     ui.roomError.textContent = "";
     state.editingRoomId = room.id;
+    const serverRole = state.servers.find((server) => server.id === room.server_id)?.role;
+    const canEditChannel = ["owner", "admin"].includes(serverRole);
+    const canManageAccess = state.hostAdmin || canEditChannel;
     ui.roomNameInput.value = room.name || "";
     ui.roomCategoryInput.value = room.category || "";
     ui.roomDescriptionInput.value = room.description || "";
     ui.roomPrivateInput.checked = room.kind === "private";
     ui.roomPrivateInput.disabled = true;
-    ui.roomDialogTitle.textContent = `Edit #${room.name}`;
+    ui.roomNameInput.disabled = !canEditChannel;
+    ui.roomCategoryInput.disabled = !canEditChannel;
+    ui.roomDescriptionInput.disabled = !canEditChannel;
+    ui.roomDialogTitle.textContent = canEditChannel ? `Edit #${room.name}` : `Manage access to #${room.name}`;
     ui.roomSubmitBtn.textContent = "Save changes";
-    ui.deleteRoomBtn.hidden = room.name.toLowerCase() === "general";
-    ui.addRoomMemberBtn.hidden = room.kind !== "private";
+    ui.roomSubmitBtn.hidden = !canEditChannel;
+    ui.deleteRoomBtn.hidden = !canEditChannel || room.name.toLowerCase() === "general";
+    ui.addRoomMemberBtn.hidden = room.kind !== "private" || !canManageAccess;
+    ui.removeRoomMemberBtn.hidden = room.kind !== "private" || !canManageAccess;
     ui.roomDialog.showModal();
-    setTimeout(() => ui.roomNameInput.focus(), 40);
+    if (canEditChannel) setTimeout(() => ui.roomNameInput.focus(), 40);
+    else setTimeout(() => ui.addRoomMemberBtn.focus(), 40);
   }
 
   async function deleteEditingRoom() {
@@ -2013,6 +2035,23 @@
   async function addEditingRoomMember() {
     const room = state.rooms.find((item) => item.id === state.editingRoomId);
     if (!room || room.kind !== "private") return;
+    state.roomMemberAction = "add";
+    ui.roomMemberDialogTitle.textContent = "Add private-channel member";
+    ui.roomMemberDialogDescription.textContent = "Enter the unique username of a member who has already joined this server.";
+    ui.roomMemberSubmitBtn.textContent = "Add member";
+    ui.roomMemberError.textContent = "";
+    ui.roomMemberUsername.value = "";
+    ui.roomMemberDialog.showModal();
+    setTimeout(() => ui.roomMemberUsername.focus(), 40);
+  }
+
+  async function removeEditingRoomMember() {
+    const room = state.rooms.find((item) => item.id === state.editingRoomId);
+    if (!room || room.kind !== "private") return;
+    state.roomMemberAction = "remove";
+    ui.roomMemberDialogTitle.textContent = "Remove private-channel member";
+    ui.roomMemberDialogDescription.textContent = "Enter a regular member's unique username to revoke their access. Server owners and admins always retain access.";
+    ui.roomMemberSubmitBtn.textContent = "Remove access";
     ui.roomMemberError.textContent = "";
     ui.roomMemberUsername.value = "";
     ui.roomMemberDialog.showModal();
@@ -2033,12 +2072,14 @@
       const res = await api("/api/rooms/member", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ room_id: room.id, username }),
+        body: JSON.stringify({ room_id: room.id, username, action: state.roomMemberAction }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Could not add private-channel member.");
       ui.roomMemberDialog.close();
-      toast(`@${username} added to private channel #${room.name}.`);
+      toast(state.roomMemberAction === "remove"
+        ? `@${username} access removed from private channel #${room.name}.`
+        : `@${username} added to private channel #${room.name}.`);
       await refreshSync();
     } catch (err) {
       ui.roomMemberError.textContent = err.message || "Could not add member.";

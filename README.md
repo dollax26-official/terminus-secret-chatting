@@ -40,7 +40,7 @@ Terminus Secrets gives you a Windows desktop client and an Android client that t
 - Server accounts are required before device pairing: unique username + password, PBKDF2-HMAC-SHA256 password hashes, and revocable 30-day account sessions.
 - Create multiple servers, join using an invite code, and switch between servers.
 - Each server has owner/admin/member roles. Owners can promote/demote admins; owners and admins can create, rename, and delete channels.
-- Public text channels are visible to server members. Private channels are visible only to invited channel members; owners/admins can add existing server members.
+- Public text channels are visible to server members. Private channels are visible to invited members; owners/admins can manage their membership, and a device paired with the host master key can also grant or revoke access for existing server members. Owners/admins retain access.
 - One-to-one and group direct messages are supported. The host checks conversation membership on message sync, sending, editing, deleting, reacting, and pinning.
 - Reply to messages, add/remove emoji reactions, pin/unpin messages, and edit/delete messages you authored.
 - Search the currently loaded local message history, see unread counts and typing indicators, and use browser/native notifications. Mentions are highlighted and can trigger notifications.
@@ -203,7 +203,7 @@ For a Windows-first walkthrough covering host setup, IPv4/IPv6 reachability, HTT
 
 ### Server roles and channel privacy
 
-Each server has an owner, admins, and members. Only the owner can promote or demote admins; owners and admins can create, rename, or delete channels. Private channels are visible only to accounts explicitly added to that channel; owners/admins can add existing server members. Direct-message and private-channel membership is enforced by the host API, not only by the interface.
+Each server has an owner, admins, and members. Only the owner can promote or demote admins; owners and admins can create, rename, or delete channels. Private channels are visible to explicitly invited accounts and server owners/admins. Owners/admins can grant or revoke access for existing server members; a device paired with the host master key can also grant or revoke private-channel membership without becoming a server owner. Direct-message and private-channel membership is enforced by the host API, not only by the interface.
 
 ## Remote access from another network
 

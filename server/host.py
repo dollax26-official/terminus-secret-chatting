@@ -41,8 +41,15 @@ from urllib.parse import parse_qs, urlparse
 
 APP_NAME = "Terminus Secrets"
 APP_VERSION = "1.0.0"
-BASE_DIR = Path(__file__).resolve().parent
-WEB_DIR = BASE_DIR / "web"
+# In a PyInstaller build, serve bundled web assets from the extraction directory but
+# keep the database, TLS identity, and credentials beside the executable.
+if getattr(sys, "frozen", False):
+    BASE_DIR = Path(sys.executable).resolve().parent
+    RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", BASE_DIR))
+    WEB_DIR = RESOURCE_DIR / "web"
+else:
+    BASE_DIR = Path(__file__).resolve().parent
+    WEB_DIR = BASE_DIR / "web"
 DEFAULT_DATA_DIR = BASE_DIR / "data"
 
 MAX_BODY = 128 * 1024
@@ -336,6 +343,8 @@ def init_db(passphrase: str) -> None:
         device_columns = [row["name"] for row in conn.execute("PRAGMA table_info(devices)")]
         if "account_id" not in device_columns:
             conn.execute("ALTER TABLE devices ADD COLUMN account_id TEXT REFERENCES accounts(id)")
+        if "master_authorized" not in device_columns:
+            conn.execute("ALTER TABLE devices ADD COLUMN master_authorized INTEGER NOT NULL DEFAULT 0")
 
         room_columns = [row["name"] for row in conn.execute("PRAGMA table_info(rooms)")]
         if "server_id" not in room_columns:
@@ -784,6 +793,7 @@ class Handler(BaseHTTPRequestHandler):
                                 for row in devices
                             ],
                             "you": device["id"],
+                            "host_admin": bool(device["master_authorized"]),
                             "last_id": max([after] + [row["id"] for row in rows]),
                             "has_more": bool(more),
                             "server_time": now_iso(),
@@ -1521,8 +1531,9 @@ class Handler(BaseHTTPRequestHandler):
     def _add_private_room_member(self, device: sqlite3.Row, body: dict) -> None:
         room_id = str(body.get("room_id") or "").strip()
         username = str(body.get("username") or "").strip()
-        if not room_id or not username:
-            self._error(400, "room_id and username are required")
+        action = str(body.get("action") or "add").strip().lower()
+        if not room_id or not username or action not in ("add", "remove"):
+            self._error(400, "room_id, username, and action (add/remove) are required")
             return
         with db() as conn:
             room = conn.execute("SELECT server_id, kind FROM rooms WHERE id=?", (room_id,)).fetchone()
@@ -1797,7 +1808,6 @@ def main() -> int:
         return 0
 
     ensure_master_key()
-    # Channel administration defaults to the host master key. An explicit
 
     cert_path = DATA_DIR / "cert.pem"
     key_path = DATA_DIR / "key.pem"

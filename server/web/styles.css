@@ -366,3 +366,89 @@ button:focus:not(:focus-visible) { outline: none; }
   -webkit-overflow-scrolling: touch;
   touch-action: pan-y;
 }
+
+
+
+/* Final scroll hardening: explicit scrollports for Chromium, Electron and Android WebView.
+   Keep the viewport fixed, but make the two user-facing panes independently scrollable. */
+#chatView.app {
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+#chatView .rail {
+  align-self: stretch;
+  min-height: 0;
+  height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y pinch-zoom;
+  scrollbar-width: thin;
+  scrollbar-color: #34465c #0a1018;
+}
+#chatView .rooms,
+#chatView .saved-host-list {
+  flex-shrink: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y pinch-zoom;
+  scrollbar-width: thin;
+  scrollbar-color: #34465c transparent;
+}
+#chatView .stage {
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+#chatView .messages {
+  display: block;
+  flex: 1 1 0px;
+  height: auto;
+  min-height: 0;
+  max-height: none;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y pinch-zoom;
+  scrollbar-width: thin;
+  scrollbar-color: #34465c transparent;
+}
+#chatView .messages > * {
+  flex-shrink: 0;
+}
+#chatView .rail::-webkit-scrollbar,
+#chatView .rooms::-webkit-scrollbar,
+#chatView .saved-host-list::-webkit-scrollbar,
+#chatView .messages::-webkit-scrollbar {
+  width: 8px;
+}
+#chatView .rail::-webkit-scrollbar-thumb,
+#chatView .rooms::-webkit-scrollbar-thumb,
+#chatView .saved-host-list::-webkit-scrollbar-thumb,
+#chatView .messages::-webkit-scrollbar-thumb {
+  background: #34465c;
+  border-radius: 8px;
+}
+@media (max-width: 820px) {
+  #chatView .rail {
+    height: 100vh;
+    height: 100dvh;
+    max-height: 100vh;
+    max-height: 100dvh;
+    padding-bottom: max(14px, env(safe-area-inset-bottom));
+  }
+  #chatView .messages {
+    min-height: 0;
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+}

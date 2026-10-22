@@ -236,6 +236,57 @@ def main():
         )
         other_device = json.loads(other_device_body)
 
+        # A device enrolled with the host master key can manage private-channel access
+        # even when its account is only a normal server member.
+        master_key = (DATA / "master-key.txt").read_text(encoding="utf-8").strip()
+        _, _, master_device_body = request(
+            "/api/pair", method="POST",
+            payload={"master_key": master_key, "device_name": "Master key admin"},
+        )
+        master_device = json.loads(master_device_body)
+        master_sync = get_json("/api/sync?after=0&wait=0", token=master_device["token"])
+        assert master_sync["host_admin"] is True
+        assert private_room["id"] in {room["id"] for room in master_sync["rooms"]}
+
+        _, _, third_body = request(
+            "/api/accounts/register", method="POST",
+            payload={"username": "smoke_third", "password": "third-smoke-password-456"},
+        )
+        third_account = json.loads(third_body)
+        ACCOUNT_TOKEN = third_account["account_token"]
+        request("/api/servers/join", method="POST", payload={"invite_code": server["invite_code"]})
+        _, _, third_device_body = request(
+            "/api/pair", method="POST", payload={"code": code, "device_name": "Third phone"}
+        )
+        third_device = json.loads(third_device_body)
+
+        ACCOUNT_TOKEN = other_account["account_token"]
+        try:
+            request(
+                "/api/rooms/member", method="POST", token=other_device["token"],
+                payload={"room_id": private_room["id"], "username": "smoke_third"},
+            )
+            raise AssertionError("ordinary member managed private-channel access")
+        except urllib.error.HTTPError as exc:
+            assert exc.code == 403, exc.code
+        request(
+            "/api/rooms/member", method="POST", token=master_device["token"],
+            payload={"room_id": private_room["id"], "username": "smoke_third"},
+        )
+        ACCOUNT_TOKEN = third_account["account_token"]
+        third_sync = get_json("/api/sync?after=0&wait=0", token=third_device["token"])
+        assert private_room["id"] in {room["id"] for room in third_sync["rooms"]}
+
+        ACCOUNT_TOKEN = other_account["account_token"]
+        request(
+            "/api/rooms/member", method="POST", token=master_device["token"],
+            payload={"room_id": private_room["id"], "username": "smoke_third", "action": "remove"},
+        )
+        ACCOUNT_TOKEN = third_account["account_token"]
+        third_sync_after_removal = get_json("/api/sync?after=0&wait=0", token=third_device["token"])
+        assert private_room["id"] not in {room["id"] for room in third_sync_after_removal["rooms"]}
+
+        ACCOUNT_TOKEN = other_account["account_token"]
         # A normal member cannot rename or delete the owner's server.
         try:
             request("/api/servers/manage", method="POST", token=other_device["token"],

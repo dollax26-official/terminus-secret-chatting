@@ -18,8 +18,10 @@ import ipaddress
 from pathlib import Path
 from tkinter import messagebox, ttk
 
-HERE = Path(__file__).resolve().parent
+FROZEN = bool(getattr(sys, "frozen", False))
+HERE = Path(sys.executable).resolve().parent if FROZEN else Path(__file__).resolve().parent
 HOST = HERE / "host.py"
+HOST_EXE = HERE / "TerminusSecretsHost.exe"
 DATA = HERE / "data"
 CONFIG = DATA / "server-settings.json"
 LOG = DATA / "host-errors.log"
@@ -114,7 +116,7 @@ class HostSettingsApp:
     def _build(self) -> None:
         shell = ttk.Frame(self.root)
         shell.pack(fill="both", expand=True)
-        self.canvas = tk.Canvas(shell, bg="#080d13", highlightthickness=0)
+        self.canvas = tk.Canvas(shell, bg="#080d13", highlightthickness=0, takefocus=True, yscrollincrement=24)
         self.scrollbar = ttk.Scrollbar(shell, orient="vertical", command=self.canvas.yview)
         self.canvas.configure(yscrollcommand=self.scrollbar.set)
         self.scrollbar.pack(side="right", fill="y")
@@ -122,7 +124,14 @@ class HostSettingsApp:
         outer = ttk.Frame(self.canvas, padding=24)
         self._content_window = self.canvas.create_window((0, 0), window=outer, anchor="nw")
         outer.bind("<Configure>", self._update_scroll_region)
+        self.root.after_idle(self._update_scroll_region)
         self.canvas.bind("<Configure>", self._resize_scroll_content)
+        # The canvas is keyboard-scrollable as well as mouse-wheel/touchpad scrollable.
+        self.canvas.bind("<Prior>", lambda _event: self.canvas.yview_scroll(-1, "pages"))
+        self.canvas.bind("<Next>", lambda _event: self.canvas.yview_scroll(1, "pages"))
+        self.canvas.bind("<Home>", lambda _event: self.canvas.yview_moveto(0))
+        self.canvas.bind("<End>", lambda _event: self.canvas.yview_moveto(1))
+        self.canvas.bind("<Button-1>", lambda _event: self.canvas.focus_set(), add="+")
         ttk.Label(outer, text="TERMINUS  /  HOST MANAGER", style="Muted.TLabel").pack(anchor="w")
         ttk.Label(outer, text="Configure your private server", style="Title.TLabel").pack(anchor="w", pady=(5, 3))
         ttk.Label(outer, text="Choose the capabilities clients can see. Your vault phrase and pairing code are kept in the data folder.", wraplength=640, style="Muted.TLabel").pack(anchor="w", pady=(0, 18))
@@ -335,7 +344,19 @@ class HostSettingsApp:
         except ValueError as exc:
             messagebox.showerror("Check settings", str(exc))
             return
-        command = [sys.executable, str(HOST), "--port", str(config["port"]), "--config", str(CONFIG)]
+        if HOST_EXE.is_file():
+            # Packaged distribution: launch the host executable beside this manager.
+            # Persistent data stays beside the manager, not in a temporary extraction directory.
+            command = [
+                str(HOST_EXE), "--port", str(config["port"]),
+                "--config", str(CONFIG), "--data-dir", str(DATA),
+            ]
+        else:
+            # Source checkout: use the current Python interpreter and host.py.
+            command = [
+                sys.executable, str(HOST), "--port", str(config["port"]),
+                "--config", str(CONFIG), "--data-dir", str(DATA),
+            ]
         if config["public_url"]:
             command.extend(["--public-url", config["public_url"]])
         try:
