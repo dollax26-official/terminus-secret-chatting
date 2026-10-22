@@ -527,7 +527,10 @@ class Handler(BaseHTTPRequestHandler):
                         SELECT m.id, m.room_id, m.device_id, m.client_msg_id,
                                m.nonce, m.ciphertext, m.created_at, m.edited_at,
                                m.deleted_at, m.pinned, m.reply_to_id,
-                               COALESCE(a.username, d.name) AS device_name
+                               COALESCE(a.username, d.name) AS device_name,
+                               COALESCE((SELECT json_group_array(json_object('emoji', r.emoji, 'count', r.n))
+                                         FROM (SELECT emoji, COUNT(*) AS n FROM reactions
+                                               WHERE message_id=m.id GROUP BY emoji) r), '[]') AS reactions_json
                         FROM messages m JOIN devices d ON d.id = m.device_id
                         LEFT JOIN accounts a ON a.id = d.account_id
                         WHERE m.id > ? OR (m.edited_at IS NOT NULL AND m.edited_at > ?)
@@ -564,6 +567,7 @@ class Handler(BaseHTTPRequestHandler):
                                     "deleted": bool(row["deleted_at"]),
                                     "pinned": bool(row["pinned"]),
                                     "reply_to_id": row["reply_to_id"],
+                                    "reactions": json.loads(row["reactions_json"] or "[]"),
                                 }
                                 for row in rows
                             ],
