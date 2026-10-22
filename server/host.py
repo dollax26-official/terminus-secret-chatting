@@ -258,12 +258,33 @@ def init_db(passphrase: str) -> None:
                 nonce BLOB NOT NULL,
                 ciphertext BLOB NOT NULL,
                 created_at TEXT NOT NULL,
+                edited_at TEXT,
+                deleted_at TEXT,
+                pinned INTEGER NOT NULL DEFAULT 0,
+                reply_to_id INTEGER,
                 UNIQUE(device_id, client_msg_id)
+            );
+            CREATE TABLE IF NOT EXISTS reactions (
+                message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+                account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                emoji TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY(message_id, account_id, emoji)
             );
             CREATE INDEX IF NOT EXISTS idx_messages_id ON messages(id);
             CREATE INDEX IF NOT EXISTS idx_messages_room ON messages(room_id, id);
             """
         )
+        message_columns = [row["name"] for row in conn.execute("PRAGMA table_info(messages)")]
+        for column, definition in (
+            ("edited_at", "TEXT"),
+            ("deleted_at", "TEXT"),
+            ("pinned", "INTEGER NOT NULL DEFAULT 0"),
+            ("reply_to_id", "INTEGER"),
+        ):
+            if column not in message_columns:
+                conn.execute(f"ALTER TABLE messages ADD COLUMN {column} {definition}")
+
         device_columns = [row["name"] for row in conn.execute("PRAGMA table_info(devices)")]
         if "account_id" not in device_columns:
             conn.execute("ALTER TABLE devices ADD COLUMN account_id TEXT REFERENCES accounts(id)")
@@ -503,8 +524,11 @@ class Handler(BaseHTTPRequestHandler):
                     rows = conn.execute(
                         """
                         SELECT m.id, m.room_id, m.device_id, m.client_msg_id,
-                               m.nonce, m.ciphertext, m.created_at, d.name AS device_name
+                               m.nonce, m.ciphertext, m.created_at, m.edited_at,
+                               m.deleted_at, m.pinned, m.reply_to_id,
+                               COALESCE(a.username, d.name) AS device_name
                         FROM messages m JOIN devices d ON d.id = m.device_id
+                        LEFT JOIN accounts a ON a.id = d.account_id
                         WHERE m.id > ? ORDER BY m.id ASC LIMIT 200
                         """,
                         (after,),
@@ -533,6 +557,10 @@ class Handler(BaseHTTPRequestHandler):
                                     "nonce": b64e(row["nonce"]),
                                     "ciphertext": b64e(row["ciphertext"]),
                                     "created_at": row["created_at"],
+                                    "edited_at": row["edited_at"],
+                                    "deleted": bool(row["deleted_at"]),
+                                    "pinned": bool(row["pinned"]),
+                                    "reply_to_id": row["reply_to_id"],
                                 }
                                 for row in rows
                             ],
@@ -657,6 +685,34 @@ class Handler(BaseHTTPRequestHandler):
             if device is None:
                 return
             self._post_message(device, body)
+            return
+
+        if path == "/api/messages/edit":
+            device = self._require_device()
+            if device is None:
+                return
+            self._edit_message(device, body)
+            return
+
+        if path == "/api/messages/delete":
+            device = self._require_device()
+            if device is None:
+                return
+            self._delete_message(device, body)
+            return
+
+        if path == "/api/messages/react":
+            device = self._require_device()
+            if device is None:
+                return
+            self._react_message(device, body)
+            return
+
+        if path == "/api/messages/pin":
+            device = self._require_device()
+            if device is None:
+                return
+            self._pin_message(device, body)
             return
 
         if path == "/api/rooms/manage":
@@ -834,6 +890,12 @@ class Handler(BaseHTTPRequestHandler):
     def _post_message(self, device: sqlite3.Row, body: dict) -> None:
         room_id = str(body.get("room_id") or "")
         client_msg_id = str(body.get("client_msg_id") or "")[:64]
+        reply_to_id = body.get("reply_to_id")
+        try:
+            reply_to_id = int(reply_to_id) if reply_to_id is not None else None
+        except (TypeError, ValueError):
+            self._error(400, "invalid reply target")
+            return
         try:
             nonce = b64d(str(body.get("nonce") or ""))
             ciphertext = b64d(str(body.get("ciphertext") or ""))
@@ -856,11 +918,17 @@ class Handler(BaseHTTPRequestHandler):
             if room is None:
                 self._error(404, "room not found")
                 return
+            if reply_to_id is not None and not conn.execute(
+                "SELECT 1 FROM messages WHERE id=? AND room_id=? AND deleted_at IS NULL",
+                (reply_to_id, room_id),
+            ).fetchone():
+                self._error(404, "reply target not found")
+                return
             try:
                 cur = conn.execute(
-                    "INSERT INTO messages(room_id, device_id, client_msg_id, nonce, ciphertext, created_at) "
-                    "VALUES(?,?,?,?,?,?)",
-                    (room_id, device["id"], client_msg_id, nonce, ciphertext, now_iso()),
+                    "INSERT INTO messages(room_id, device_id, client_msg_id, nonce, ciphertext, created_at, reply_to_id) "
+                    "VALUES(?,?,?,?,?,?,?)",
+                    (room_id, device["id"], client_msg_id, nonce, ciphertext, now_iso(), reply_to_id),
                 )
             except sqlite3.IntegrityError:
                 row = conn.execute(
@@ -884,6 +952,102 @@ class Handler(BaseHTTPRequestHandler):
         with MESSAGE_COND:
             MESSAGE_COND.notify_all()
         self._send_json(200, {"id": message_id, "created_at": created_at})
+
+    def _edit_message(self, device: sqlite3.Row, body: dict) -> None:
+        try:
+            message_id = int(body.get("message_id"))
+            nonce = b64d(str(body.get("nonce") or ""))
+            ciphertext = b64d(str(body.get("ciphertext") or ""))
+        except (TypeError, ValueError):
+            self._error(400, "invalid message edit")
+            return
+        if len(nonce) != 12 or not ciphertext or len(ciphertext) > MAX_CIPHERTEXT:
+            self._error(400, "invalid ciphertext")
+            return
+        with db() as conn:
+            row = conn.execute("SELECT device_id, deleted_at FROM messages WHERE id=?", (message_id,)).fetchone()
+            if row is None or row["deleted_at"]:
+                self._error(404, "message not found")
+                return
+            if row["device_id"] != device["id"]:
+                self._error(403, "only the author can edit this message")
+                return
+            conn.execute("UPDATE messages SET nonce=?, ciphertext=?, edited_at=? WHERE id=?",
+                         (nonce, ciphertext, now_iso(), message_id))
+        with MESSAGE_COND:
+            MESSAGE_COND.notify_all()
+        self._send_json(200, {"ok": True, "message_id": message_id})
+
+    def _delete_message(self, device: sqlite3.Row, body: dict) -> None:
+        try:
+            message_id = int(body.get("message_id"))
+        except (TypeError, ValueError):
+            self._error(400, "message_id required")
+            return
+        with db() as conn:
+            row = conn.execute("SELECT device_id, deleted_at FROM messages WHERE id=?", (message_id,)).fetchone()
+            if row is None or row["deleted_at"]:
+                self._error(404, "message not found")
+                return
+            if row["device_id"] != device["id"]:
+                self._error(403, "only the author can delete this message")
+                return
+            conn.execute("UPDATE messages SET deleted_at=?, ciphertext=?, nonce=? WHERE id=?",
+                         (now_iso(), b"", secrets.token_bytes(12), message_id))
+            conn.execute("DELETE FROM reactions WHERE message_id=?", (message_id,))
+        with MESSAGE_COND:
+            MESSAGE_COND.notify_all()
+        self._send_json(200, {"ok": True, "message_id": message_id, "deleted": True})
+
+    def _react_message(self, device: sqlite3.Row, body: dict) -> None:
+        try:
+            message_id = int(body.get("message_id"))
+        except (TypeError, ValueError):
+            self._error(400, "message_id required")
+            return
+        emoji = str(body.get("emoji") or "").strip()
+        if not emoji or len(emoji) > 16:
+            self._error(400, "choose a valid reaction")
+            return
+        account_id = self._account_session_id()
+        with db() as conn:
+            if not conn.execute("SELECT 1 FROM messages WHERE id=? AND deleted_at IS NULL", (message_id,)).fetchone():
+                self._error(404, "message not found")
+                return
+            existing = conn.execute(
+                "SELECT 1 FROM reactions WHERE message_id=? AND account_id=? AND emoji=?",
+                (message_id, account_id, emoji),
+            ).fetchone()
+            if existing:
+                conn.execute("DELETE FROM reactions WHERE message_id=? AND account_id=? AND emoji=?",
+                             (message_id, account_id, emoji))
+                active = False
+            else:
+                conn.execute("INSERT INTO reactions(message_id, account_id, emoji, created_at) VALUES(?,?,?,?)",
+                             (message_id, account_id, emoji, now_iso()))
+                active = True
+            rows = conn.execute("SELECT emoji, COUNT(*) AS count FROM reactions WHERE message_id=? GROUP BY emoji",
+                                (message_id,)).fetchall()
+        with MESSAGE_COND:
+            MESSAGE_COND.notify_all()
+        self._send_json(200, {"ok": True, "active": active, "reactions": [dict(r) for r in rows]})
+
+    def _pin_message(self, device: sqlite3.Row, body: dict) -> None:
+        try:
+            message_id = int(body.get("message_id"))
+        except (TypeError, ValueError):
+            self._error(400, "message_id required")
+            return
+        pinned = bool(body.get("pinned", True))
+        with db() as conn:
+            row = conn.execute("SELECT deleted_at FROM messages WHERE id=?", (message_id,)).fetchone()
+            if row is None or row["deleted_at"]:
+                self._error(404, "message not found")
+                return
+            conn.execute("UPDATE messages SET pinned=? WHERE id=?", (1 if pinned else 0, message_id))
+        with MESSAGE_COND:
+            MESSAGE_COND.notify_all()
+        self._send_json(200, {"ok": True, "message_id": message_id, "pinned": pinned})
 
     def _create_room(self, device: sqlite3.Row, body: dict) -> None:
         name = " ".join(str(body.get("name") or "").split())[:32]
