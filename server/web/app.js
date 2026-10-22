@@ -38,6 +38,8 @@
     messages: [],
     messageIds: new Set(),
     lastId: 0,
+    syncSince: "",
+    replyTo: null,
     currentRoom: localStorage.getItem(LS.room) || "general",
     unread: new Map(),
     lastRendered: { day: null, device: null, at: 0 },
@@ -687,7 +689,7 @@
     state.lastId = 0;
     while (guard < 50) {
       guard += 1;
-      const res = await api(`/api/sync?after=${state.lastId}&wait=0`);
+      const res = await api(`/api/sync?after=${state.lastId}&wait=0&updated_after=${encodeURIComponent(state.syncSince)}`);
       if (res.status === 401) {
         forgetToken();
         throw new Error("This device is no longer authorized. Pair it again.");
@@ -707,13 +709,44 @@
     }
     state.devices = data.devices || state.devices;
     state.lastId = data.last_id ?? state.lastId;
+    state.syncSince = data.server_time || state.syncSince;
     if (data.you) state.deviceId = data.you;
 
+    let changedExisting = false;
     const incoming = [];
     const decryptRows = [];
     for (const row of data.messages || []) {
       const messageKey = String(row.id);
-      if (state.messageIds.has(messageKey)) continue;
+      const existing = state.messages.find((m) => String(m.id) === messageKey);
+      if (existing) {
+        if (row.deleted) {
+          existing.deleted = true;
+          existing.text = "Message deleted";
+          existing.failedDecrypt = false;
+          existing.edited_at = row.edited_at || existing.edited_at;
+          existing.pinned = Boolean(row.pinned);
+          changedExisting = true;
+          continue;
+        }
+        if (row.edited_at && row.edited_at !== existing.edited_at) {
+          state.messages = state.messages.filter((m) => m !== existing);
+          state.messageIds.delete(messageKey);
+          changedExisting = true;
+        } else {
+          existing.pinned = Boolean(row.pinned);
+          continue;
+        }
+      }
+      if (row.deleted) {
+        state.messageIds.add(messageKey);
+        incoming.push({
+          id: row.id, client_msg_id: row.client_msg_id, room_id: row.room_id,
+          device_id: row.device_id, device_name: row.device_name || "Device",
+          created_at: row.created_at, text: "Message deleted", deleted: true,
+          edited_at: row.edited_at, pinned: Boolean(row.pinned), reply_to_id: row.reply_to_id,
+        });
+        continue;
+      }
       state.messageIds.add(messageKey);
 
       // Only search for optimistic messages when this row belongs to us.
@@ -749,6 +782,10 @@
         created_at: row.created_at,
         text: text === null ? "" : text,
         failedDecrypt: text === null,
+        edited_at: row.edited_at || null,
+        deleted: Boolean(row.deleted),
+        pinned: Boolean(row.pinned),
+        reply_to_id: row.reply_to_id ?? null,
       });
     }
 
@@ -765,7 +802,8 @@
     renderRooms();
     if (!ui.chatView.hidden) {
       updateHeader();
-      updateEmptyState();
+      if (changedExisting) renderMessages();
+      else updateEmptyState();
     }
 
     if (incoming.length && document.hidden) {
@@ -779,7 +817,7 @@
     state.polling = true;
     while (!state.stopped) {
       try {
-        const res = await api(`/api/sync?after=${state.lastId}&wait=20`);
+        const res = await api(`/api/sync?after=${state.lastId}&wait=20&updated_after=${encodeURIComponent(state.syncSince)}`);
         if (res.status === 401) {
           lockOut("This device was revoked by the host.");
           break;
