@@ -203,12 +203,6 @@ def main():
                      "nonce": dm_nonce, "ciphertext": dm_ciphertext},
         )
 
-        _, _, role_body = request(
-            "/api/servers/role", method="POST", token=device_a["token"],
-            payload={"server_id": server["id"], "username": "smoke_other", "role": "admin"},
-        )
-        assert json.loads(role_body)["role"] == "admin"
-
         ACCOUNT_TOKEN = other_account["account_token"]
         other_sync = get_json("/api/sync?after=0&wait=0", token=other_device["token"])
         other_room_ids = {room["id"] for room in other_sync["rooms"]}
@@ -218,7 +212,19 @@ def main():
         dm_rows = [row for row in other_sync["messages"] if row["room_id"] == dm["id"]]
         assert len(dm_rows) == 1
         assert decrypt(key, dm["id"], dm_rows[0]["nonce"], dm_rows[0]["ciphertext"]) == "private direct message"
-        assert next(server_row for server_row in other_sync["servers"] if server_row["id"] == server["id"])["role"] == "admin"
+        assert next(server_row for server_row in other_sync["servers"] if server_row["id"] == server["id"])["role"] == "member"
+
+        ACCOUNT_TOKEN = account1_token
+        _, _, role_body = request(
+            "/api/servers/role", method="POST", token=device_a["token"],
+            payload={"server_id": server["id"], "username": "smoke_other", "role": "admin"},
+        )
+        assert json.loads(role_body)["role"] == "admin"
+        ACCOUNT_TOKEN = other_account["account_token"]
+        admin_sync = get_json("/api/sync?after=0&wait=0", token=other_device["token"])
+        admin_room_ids = {room["id"] for room in admin_sync["rooms"]}
+        assert private_room["id"] in admin_room_ids
+        assert next(server_row for server_row in admin_sync["servers"] if server_row["id"] == server["id"])["role"] == "admin"
         ACCOUNT_TOKEN = account1_token
 
         # Vault check blob round-trip (the web client stores a known marker).
