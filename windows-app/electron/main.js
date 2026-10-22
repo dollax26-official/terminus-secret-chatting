@@ -384,6 +384,36 @@ function createWindow(startPath) {
   });
 
   Menu.setApplicationMenu(null);
+
+  // Keep familiar copy/paste actions available even though the app menu is hidden.
+  // This works for selected chat text as well as editable fields.
+  mainWindow.webContents.on("context-menu", (_event, params) => {
+    const items = [];
+    const flags = params.editFlags || {};
+
+    if (params.isEditable) {
+      items.push(
+        { role: "undo", enabled: Boolean(flags.canUndo) },
+        { role: "redo", enabled: Boolean(flags.canRedo) },
+        { type: "separator" },
+        { role: "cut", enabled: Boolean(flags.canCut) }
+      );
+    }
+
+    items.push({ role: "copy", enabled: Boolean(flags.canCopy || params.selectionText) });
+
+    if (params.isEditable) {
+      items.push({ role: "paste", enabled: Boolean(flags.canPaste) });
+    }
+
+    items.push(
+      { type: "separator" },
+      { role: "selectAll", enabled: Boolean(flags.canSelectAll || params.selectionText || params.isEditable) }
+    );
+
+    Menu.buildFromTemplate(items).popup({ window: mainWindow });
+  });
+
   mainWindow.once("ready-to-show", () => mainWindow.show());
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
