@@ -966,3 +966,6 @@ button:focus:not(:focus-visible) { outline: none; }
   .chat-search:focus-within input { width:100%; }
   .server-actions .icon-btn { width:27px; }
 }
+
+.private-channel-toggle { display:flex; align-items:flex-start; gap:10px; margin:4px 0 16px; color:var(--muted); font-size:12px; line-height:1.5; }
+.private-channel-toggle input { flex:none; width:16px; height:16px; accent-color:var(--accent); }
