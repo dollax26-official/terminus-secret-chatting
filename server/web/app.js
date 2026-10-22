@@ -1871,20 +1871,36 @@
     location.href = host.url + "/app/" + query;
   }
 
-  function restoreSavedHostsFromUrl() {
+  async function restoreSavedHostsFromUrl() {
     const params = new URLSearchParams(location.search);
     const encoded = params.get("tsSavedHosts");
-    if (!encoded) return;
-    try {
-      const incoming = JSON.parse(encoded);
-      const merged = new Map(readSavedHosts().map((item) => [item.url, item]));
-      if (Array.isArray(incoming)) incoming.slice(0, 20).forEach((item) => {
-        if (item && typeof item.url === "string" && item.url.startsWith("https://")) merged.set(item.url, item);
-      });
-      state.savedHosts = Array.from(merged.values()).slice(0, 20);
-      localStorage.setItem("ts.saved-hosts", JSON.stringify(state.savedHosts));
-      history.replaceState(null, "", location.pathname);
-    } catch (_) {}
+    if (encoded) {
+      try {
+        const incoming = JSON.parse(encoded);
+        const merged = new Map(readSavedHosts().map((item) => [item.url, item]));
+        if (Array.isArray(incoming)) incoming.slice(0, 20).forEach((item) => {
+          if (item && typeof item.url === "string" && item.url.startsWith("https://")) merged.set(item.url, item);
+        });
+        state.savedHosts = Array.from(merged.values()).slice(0, 20);
+        localStorage.setItem("ts.saved-hosts", JSON.stringify(state.savedHosts));
+      } catch (_) {}
+    }
+    if (params.get("tsReconnect") === "1") {
+      if (state.token && state.deviceId && state.accountToken) {
+        try {
+          await fetch("/api/devices/revoke", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": "Bearer " + state.token, "X-Account-Token": state.accountToken },
+            body: JSON.stringify({ device_id: state.deviceId }),
+          });
+        } catch (_) {}
+      }
+      localStorage.removeItem(LS.token);
+      localStorage.removeItem(LS.device);
+      state.token = "";
+      state.deviceId = "";
+    }
+    if (encoded || params.has("tsReconnect")) history.replaceState(null, "", location.pathname);
   }
 
   /* -------------------------------------------------------------- calls/media */
@@ -2175,7 +2191,7 @@
 
   /* ------------------------------------------------------------------- init */
   async function init() {
-    restoreSavedHostsFromUrl();
+    await restoreSavedHostsFromUrl();
     cacheUi();
     bindEvents();
     ui.deviceInput.value = state.deviceName;
