@@ -10,6 +10,8 @@
   const dec = new TextDecoder();
   const LS = {
     token: "ts.token",
+    accountToken: "ts.account-token",
+    account: "ts.account",
     device: "ts.device",
     name: "ts.name",
     room: "ts.room",
@@ -20,6 +22,9 @@
 
   const state = {
     mode: "pair",
+    accountToken: localStorage.getItem(LS.accountToken) || "",
+    account: (() => { try { return JSON.parse(localStorage.getItem(LS.account) || "null"); } catch (_) { return null; } })(),
+    accountMode: "login",
     token: localStorage.getItem(LS.token) || "",
     deviceId: localStorage.getItem(LS.device) || "",
     deviceName: localStorage.getItem(LS.name) || guessDeviceName(),
@@ -145,7 +150,10 @@
   }
 
   function authHeaders(extra = {}) {
-    return { Authorization: `Bearer ${state.token}`, ...extra };
+    const headers = { ...extra };
+    if (state.token) headers.Authorization = `Bearer ${state.token}`;
+    if (state.accountToken) headers["X-Account-Token"] = state.accountToken;
+    return headers;
   }
 
   function api(path, options = {}) {
@@ -310,6 +318,51 @@
     ui.backdrop = $("#backdrop");
   }
 
+  function toggleAccountMode() {
+    state.accountMode = state.accountMode === "login" ? "register" : "login";
+    ui.accountTitle.textContent = state.accountMode === "login" ? "Sign in to this server" : "Create your account";
+    ui.accountBtn.textContent = state.accountMode === "login" ? "Sign in" : "Create account";
+    ui.accountModeBtn.textContent = state.accountMode === "login" ? "Need an account? Create one" : "Already registered? Sign in";
+    ui.accountPassword.autocomplete = state.accountMode === "login" ? "current-password" : "new-password";
+    ui.accountError.textContent = "";
+  }
+
+  async function onAccountSubmit(event) {
+    event.preventDefault();
+    ui.accountError.textContent = "";
+    const username = ui.accountUsername.value.trim();
+    const password = ui.accountPassword.value;
+    if (!username || !password) {
+      ui.accountError.textContent = "Enter both your username and password.";
+      return;
+    }
+    ui.accountBtn.disabled = true;
+    try {
+      const endpoint = state.accountMode === "register" ? "/api/accounts/register" : "/api/accounts/login";
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Account authentication failed.");
+      state.accountToken = data.account_token;
+      state.account = data.account;
+      localStorage.setItem(LS.accountToken, state.accountToken);
+      localStorage.setItem(LS.account, JSON.stringify(state.account));
+      ui.accountPanel.hidden = true;
+      ui.connectForm.hidden = false;
+      ui.accountPassword.value = "";
+      if (state.token) setMode("unlock");
+      else setMode("pair");
+      toast(`Signed in as ${state.account.username}.`);
+    } catch (err) {
+      ui.accountError.textContent = err.message || "Account authentication failed.";
+    } finally {
+      ui.accountBtn.disabled = false;
+    }
+  }
+
   function applyAppearance() {
     const background = ui.backgroundColorInput.value || "#06090e";
     const accent = ui.accentColorInput.value || "#3ee0c5";
@@ -333,6 +386,15 @@
   }
 
   function bindEvents() {
+    ui.accountForm = $("#accountForm");
+    ui.accountPanel = $("#accountPanel");
+    ui.accountError = $("#accountError");
+    ui.accountBtn = $("#accountBtn");
+    ui.accountModeBtn = $("#accountModeBtn");
+    ui.accountUsername = $("#accountUsername");
+    ui.accountPassword = $("#accountPassword");
+    ui.accountForm.addEventListener("submit", onAccountSubmit);
+    ui.accountModeBtn.addEventListener("click", toggleAccountMode);
     ui.connectForm.addEventListener("submit", onConnect);
     ui.revealBtn.addEventListener("click", () => {
       const show = ui.passInput.type === "password";
@@ -397,6 +459,29 @@
       localStorage.removeItem(LS.token);
       localStorage.removeItem(LS.device);
       location.href = "/setup";
+    });
+    $("#switchAccountBtn").addEventListener("click", async () => {
+      if (state.accountToken) {
+        try {
+          await fetch("/api/accounts/logout", { method: "POST", headers: authHeaders({ "Content-Type": "application/json" }), body: "{}" });
+        } catch (_) {}
+      }
+      state.accountToken = "";
+      state.account = null;
+      state.token = "";
+      state.deviceId = "";
+      state.key = null;
+      localStorage.removeItem(LS.accountToken);
+      localStorage.removeItem(LS.account);
+      localStorage.removeItem(LS.token);
+      localStorage.removeItem(LS.device);
+      ui.chatView.hidden = true;
+      ui.connectView.hidden = false;
+      ui.accountPanel.hidden = false;
+      ui.connectForm.hidden = true;
+      state.accountMode = "login";
+      toggleAccountMode();
+      toggleAccountMode();
     });
 
     ui.roomForm.addEventListener("submit", createRoom);
@@ -530,7 +615,7 @@
         }
         const res = await fetch("/api/pair", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: authHeaders({ "Content-Type": "application/json" }),
           body: JSON.stringify(payload),
         });
         const data = await res.json().catch(() => ({}));
@@ -1309,8 +1394,14 @@
     cacheUi();
     bindEvents();
     ui.deviceInput.value = state.deviceName;
+    ui.accountTitle = $("#accountTitle");
+    ui.accountPanel.hidden = Boolean(state.accountToken);
+    ui.connectForm.hidden = !state.accountToken;
+    if (state.account) {
+      ui.accountUsername.value = state.account.username || "";
+    }
     const reachable = await checkHost();
-    if (state.token) setMode("unlock");
+    if (state.accountToken && state.token) setMode("unlock");
     else setMode("pair");
     if (!reachable) {
       ui.connectError.textContent =
