@@ -884,11 +884,6 @@ class Handler(BaseHTTPRequestHandler):
             device = self._require_device()
             if device is None:
                 return
-            if ROOM_ADMIN_KEY:
-                supplied_key = str(body.get("admin_key") or "")
-                if not hmac.compare_digest(supplied_key, ROOM_ADMIN_KEY):
-                    self._error(403, "host group-management key required or invalid")
-                    return
             self._create_room(device, body)
             return
 
