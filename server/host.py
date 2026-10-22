@@ -597,12 +597,19 @@ class Handler(BaseHTTPRequestHandler):
                               WHERE r.kind='text' AND sm.account_id=? AND (?='' OR r.server_id=?)
                               UNION
                               SELECT r.id FROM rooms r JOIN room_members rm ON rm.room_id=r.id
-                              WHERE r.kind IN ('dm','private') AND rm.account_id=? AND (?='' OR r.kind='dm' OR r.server_id=?)
+                              WHERE r.kind='dm' AND rm.account_id=? AND ?=''
+                              UNION
+                              SELECT r.id FROM rooms r
+                              WHERE r.kind='private' AND (?='' OR r.server_id=?) AND (
+                                  EXISTS (SELECT 1 FROM room_members rm WHERE rm.room_id=r.id AND rm.account_id=?)
+                                  OR EXISTS (SELECT 1 FROM server_members sm WHERE sm.server_id=r.server_id
+                                             AND sm.account_id=? AND sm.role IN ('owner','admin'))
+                              )
                           )
                          ORDER BY m.id ASC LIMIT 200
                         """,
                         (after, updated_after, updated_after, device["account_id"], server_id, server_id,
-                         device["account_id"], server_id, server_id),
+                         device["account_id"], server_id, server_id, device["account_id"], device["account_id"]),
                     ).fetchall()
                     remaining = deadline - time.monotonic()
                     if rows or remaining <= 0 or wait == 0 or TYPING_VERSION != typing_version:
@@ -617,12 +624,18 @@ class Handler(BaseHTTPRequestHandler):
                                WHERE (r.kind='text' AND r.server_id IN (
                                    SELECT sm.server_id FROM server_members sm WHERE sm.account_id=?
                                ) AND (?='' OR r.server_id=?))
-                               OR (r.kind IN ('dm','private') AND EXISTS (
+                               OR (r.kind='dm' AND EXISTS (
                                    SELECT 1 FROM room_members rm WHERE rm.room_id=r.id AND rm.account_id=?
                                ) AND (?='' OR r.kind='dm' OR r.server_id=?))
+                               OR (r.kind='private' AND (?='' OR r.server_id=?) AND (
+                                   EXISTS (SELECT 1 FROM room_members rm WHERE rm.room_id=r.id AND rm.account_id=?)
+                                   OR EXISTS (SELECT 1 FROM server_members sm WHERE sm.server_id=r.server_id
+                                              AND sm.account_id=? AND sm.role IN ('owner','admin'))
+                               ))
                                ORDER BY r.created_at ASC""",
                             (device["account_id"], device["account_id"], server_id, server_id,
-                             device["account_id"], server_id, server_id),
+                             device["account_id"], server_id, server_id, server_id, server_id,
+                             device["account_id"], device["account_id"]),
                         ).fetchall()
                         servers = conn.execute(
                             """SELECT s.id, s.name, s.description, s.invite_code, sm.role
@@ -1105,11 +1118,13 @@ class Handler(BaseHTTPRequestHandler):
             if room is None:
                 self._error(404, "channel not found")
                 return
-            if room["kind"] in ("dm", "private"):
+            if room["kind"] == "dm":
                 allowed = conn.execute(
                     "SELECT 1 FROM room_members WHERE room_id=? AND account_id=?",
                     (room_id, device["account_id"]),
                 ).fetchone()
+            elif room["kind"] == "private":
+                allowed = self._can_access_room(conn, device["account_id"], room_id)
             else:
                 allowed = conn.execute(
                     "SELECT 1 FROM server_members WHERE server_id=? AND account_id=?",
@@ -1310,9 +1325,18 @@ class Handler(BaseHTTPRequestHandler):
         room = conn.execute("SELECT server_id, kind FROM rooms WHERE id=?", (room_id,)).fetchone()
         if room is None:
             return False
-        if room["kind"] in ("dm", "private"):
+        if room["kind"] == "dm":
             return conn.execute(
                 "SELECT 1 FROM room_members WHERE room_id=? AND account_id=?", (room_id, account_id)
+            ).fetchone() is not None
+        if room["kind"] == "private":
+            if conn.execute(
+                "SELECT 1 FROM room_members WHERE room_id=? AND account_id=?", (room_id, account_id)
+            ).fetchone():
+                return True
+            return conn.execute(
+                "SELECT 1 FROM server_members WHERE server_id=? AND account_id=? AND role IN ('owner','admin')",
+                (room["server_id"], account_id),
             ).fetchone() is not None
         return conn.execute(
             "SELECT 1 FROM server_members WHERE server_id=? AND account_id=?",
