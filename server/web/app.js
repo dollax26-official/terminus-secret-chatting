@@ -33,6 +33,9 @@
     iterations: 600000,
     key: null,
     rooms: [],
+    servers: [],
+    activeServerId: localStorage.getItem("ts.server") || "",
+    searchQuery: "",
     roomAdminRequired: false,
     devices: [],
     messages: [],
@@ -283,6 +286,11 @@
     ui.hostBadge = $("#hostBadge");
     ui.hostBadgeText = $("#hostBadgeText");
     ui.roomList = $("#roomList");
+    ui.dmList = $("#dmList");
+    ui.serverSelect = $("#serverSelect");
+    ui.searchInput = $("#searchInput");
+    ui.fileInput = $("#fileInput");
+    ui.attachBtn = $("#attachBtn");
     ui.roomTitle = $("#roomTitle");
     ui.roomMeta = $("#roomMeta");
     ui.syncState = $("#syncState");
@@ -420,6 +428,23 @@
       event.preventDefault();
       submitComposer();
     });
+    ui.serverSelect.addEventListener("change", () => {
+      state.activeServerId = ui.serverSelect.value;
+      localStorage.setItem("ts.server", state.activeServerId);
+      const first = state.rooms.find((room) => room.kind !== "dm" && room.server_id === state.activeServerId);
+      if (first) selectRoom(first.id); else renderRooms();
+    });
+    $("#createServerBtn").addEventListener("click", createServer);
+    $("#joinServerBtn").addEventListener("click", joinServer);
+    $("#inviteServerBtn").addEventListener("click", showServerInvite);
+    $("#manageRolesBtn").addEventListener("click", manageServerRoles);
+    $("#newDmBtn").addEventListener("click", openDirectMessage);
+    ui.searchInput.addEventListener("input", () => {
+      state.searchQuery = ui.searchInput.value.trim().toLocaleLowerCase();
+      renderMessages();
+    });
+    ui.attachBtn.addEventListener("click", () => ui.fileInput.click());
+    ui.fileInput.addEventListener("change", sendAttachment);
     ui.input.addEventListener("keydown", (event) => {
       if (event.key === "Enter" && !event.shiftKey) {
         event.preventDefault();
@@ -704,6 +729,11 @@
   /* ------------------------------------------------------------------- sync */
   async function applySync(data, options = {}) {
     state.rooms = data.rooms || state.rooms;
+    state.servers = data.servers || state.servers;
+    if (!state.activeServerId || !state.servers.some((server) => server.id === state.activeServerId)) {
+      state.activeServerId = state.servers[0]?.id || "";
+      if (state.activeServerId) localStorage.setItem("ts.server", state.activeServerId);
+    }
     if (typeof data.room_admin_required === "boolean") {
       state.roomAdminRequired = data.room_admin_required;
     }
@@ -872,39 +902,50 @@
 
   /* ------------------------------------------------------------------- rooms */
   function renderRooms() {
-    const signature =
-      state.rooms.map((room) => `${room.id}:${room.name}:${room.description || ""}`).join("|") +
-      `|${state.currentRoom}|` +
-      Array.from(state.unread.entries())
-        .map(([id, count]) => `${id}=${count}`)
-        .join(",");
+    const signature = state.rooms.map((room) => `${room.id}:${room.name}:${room.description || ""}:${room.kind || "text"}`).join("|") +
+      "|" + state.servers.map((server) => `${server.id}:${server.name}:${server.role}`).join("|") +
+      `|${state.activeServerId}|${state.currentRoom}|` +
+      Array.from(state.unread.entries()).map(([id, count]) => `${id}=${count}`).join(",");
     if (signature === state.roomSignature) return;
     state.roomSignature = signature;
 
-    const fragment = document.createDocumentFragment();
-    for (const room of state.rooms) {
+    ui.serverSelect.replaceChildren();
+    for (const server of state.servers) {
+      const option = el("option", "", server.name);
+      option.value = server.id;
+      ui.serverSelect.append(option);
+    }
+    ui.serverSelect.disabled = state.servers.length === 0;
+    if (state.activeServerId) ui.serverSelect.value = state.activeServerId;
+    const channelFragment = document.createDocumentFragment();
+    const dmFragment = document.createDocumentFragment();
+    const channels = state.rooms.filter((room) => room.kind !== "dm" && room.server_id === state.activeServerId);
+    const dms = state.rooms.filter((room) => room.kind === "dm");
+    for (const room of channels) {
       const button = el("button", "room-btn" + (room.id === state.currentRoom ? " active" : ""));
       button.type = "button";
       button.append(el("span", "hash", "#"), el("span", "name", room.name));
       const unread = state.unread.get(room.id) || 0;
-      if (unread > 0 && room.id !== state.currentRoom) {
-        button.append(el("span", "unread", unread > 99 ? "99+" : String(unread)));
-      }
+      if (unread > 0 && room.id !== state.currentRoom) button.append(el("span", "unread", unread > 99 ? "99+" : String(unread)));
       button.addEventListener("click", () => selectRoom(room.id));
-      fragment.append(button);
-      if (room.id !== "general") {
+      channelFragment.append(button);
+      if (room.name !== "general" && ["owner", "admin"].includes(state.servers.find((server) => server.id === state.activeServerId)?.role)) {
         const manage = el("button", "room-manage", "···");
-        manage.type = "button";
-        manage.title = `Manage ${room.name}`;
-        manage.setAttribute("aria-label", `Manage ${room.name}`);
-        manage.addEventListener("click", (event) => {
-          event.stopPropagation();
-          manageRoom(room);
-        });
-        fragment.append(manage);
+        manage.type = "button"; manage.title = `Manage #${room.name}`;
+        manage.addEventListener("click", (event) => { event.stopPropagation(); manageRoom(room); });
+        channelFragment.append(manage);
       }
     }
-    ui.roomList.replaceChildren(fragment);
+    for (const room of dms) {
+      const button = el("button", "room-btn" + (room.id === state.currentRoom ? " active" : ""));
+      button.type = "button"; button.append(el("span", "hash", "@"), el("span", "name", room.name));
+      const unread = state.unread.get(room.id) || 0;
+      if (unread > 0 && room.id !== state.currentRoom) button.append(el("span", "unread", unread > 99 ? "99+" : String(unread)));
+      button.addEventListener("click", () => selectRoom(room.id));
+      dmFragment.append(button);
+    }
+    ui.roomList.replaceChildren(channelFragment);
+    ui.dmList.replaceChildren(dmFragment);
     updateTitle();
   }
 
@@ -938,11 +979,13 @@
 
   function updateHeader() {
     const room = currentRoom();
-    ui.roomTitle.textContent = `# ${room.name}`;
+    const isDm = room.kind === "dm";
+    const server = state.servers.find((item) => item.id === room.server_id);
+    ui.roomTitle.textContent = `${isDm ? "@" : "#"} ${room.name || "general"}`;
     const count = state.devices.length || 1;
-    const description = room.description ? `${room.description} · ` : "";
-    ui.roomMeta.textContent = `${description}${count} device${count === 1 ? "" : "s"} · end-to-end encrypted`;
-    ui.input.placeholder = `Message #${room.name}`;
+    const description = isDm ? "Direct message" : (server ? server.name : (room.description || "Server channel"));
+    ui.roomMeta.textContent = `${description} · ${count} device${count === 1 ? "" : "s"} · end-to-end encrypted`;
+    ui.input.placeholder = `Message ${isDm ? "@" : "#"}${room.name || "general"}`;
   }
 
   /* ---------------------------------------------------------------- messages */
@@ -951,17 +994,26 @@
     state.lastRendered = { day: null, device: null, at: 0 };
     state.newBelow = 0;
     ui.jumpBtn.hidden = true;
-    const list = state.messages.filter((m) => m.room_id === state.currentRoom);
+    const list = state.messages.filter((m) => m.room_id === state.currentRoom &&
+      (!state.searchQuery || (m.text || "").toLocaleLowerCase().includes(state.searchQuery)));
     for (const message of list) appendMessage(message, { forceScroll: false, track: false, updateEmpty: false });
     updateEmptyState();
     scrollToBottom(false);
   }
 
   function updateEmptyState() {
-    const list = state.messages.filter((m) => m.room_id === state.currentRoom);
+    const list = state.messages.filter((m) => m.room_id === state.currentRoom &&
+      (!state.searchQuery || (m.text || "").toLocaleLowerCase().includes(state.searchQuery)));
     const empty = list.length === 0;
     ui.emptyState.hidden = !empty;
     ui.messages.hidden = empty;
+    if (empty && state.searchQuery) {
+      ui.emptyTitle.textContent = "No matching messages";
+      ui.emptyText.textContent = "Try a different search phrase.";
+    } else if (empty) {
+      ui.emptyTitle.textContent = "Nothing here yet.";
+      ui.emptyText.textContent = "Send the first message. It is encrypted on this device before it leaves.";
+    }
   }
 
   function appendMessage(message, options = {}) {
@@ -1014,6 +1066,15 @@
     if (message.failedDecrypt) {
       bubble.textContent = "⚠ This message could not be decrypted.";
       bubble.style.color = "var(--danger)";
+    } else if (typeof message.text === "string" && message.text.startsWith("__TS_ATTACHMENT_V1__:")) {
+      try {
+        const file = JSON.parse(message.text.slice("__TS_ATTACHMENT_V1__:".length));
+        const link = el("a", "", `📎 Download ${file.name || "attachment"}`);
+        link.href = `data:${file.type || "application/octet-stream"};base64,${file.data}`;
+        link.download = file.name || "attachment";
+        link.rel = "noopener";
+        bubble.append(link);
+      } catch (_) { fillText(bubble, "Attachment could not be displayed."); }
     } else {
       fillText(bubble, message.text || "");
     }
@@ -1373,6 +1434,96 @@
   }
 
   /* ------------------------------------------------------------------ rooms */
+  async function refreshSync() {
+    const res = await api(`/api/sync?after=${state.lastId}&wait=0`);
+    if (!res.ok) throw new Error("Could not refresh server data.");
+    await applySync(await res.json(), { quiet: true });
+  }
+
+  async function createServer() {
+    const name = window.prompt("New server name:");
+    if (name === null || !name.trim()) return;
+    const description = window.prompt("Server description (optional):", "") || "";
+    try {
+      const res = await api("/api/servers/create", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.trim(), description }) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not create server.");
+      state.activeServerId = data.id;
+      localStorage.setItem("ts.server", data.id);
+      await refreshSync();
+      toast(`Created ${data.name}. Invite code: ${data.invite_code}`);
+      window.alert(`Server created: ${data.name}\\nInvite code (share only with people you want to join):\\n${data.invite_code}`);
+    } catch (err) { toast(err.message || "Could not create server.", "error"); }
+  }
+
+  async function joinServer() {
+    const invite_code = window.prompt("Paste the server invite code:");
+    if (invite_code === null || !invite_code.trim()) return;
+    try {
+      const res = await api("/api/servers/join", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ invite_code: invite_code.trim() }) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not join server.");
+      state.activeServerId = data.id;
+      localStorage.setItem("ts.server", data.id);
+      await refreshSync();
+      const channel = state.rooms.find((room) => room.server_id === data.id && room.kind !== "dm");
+      if (channel) selectRoom(channel.id);
+      toast(`Joined ${data.name}.`);
+    } catch (err) { toast(err.message || "Could not join server.", "error"); }
+  }
+
+  function showServerInvite() {
+    const server = state.servers.find((item) => item.id === state.activeServerId);
+    if (!server) { toast("Create or join a server first.", "error"); return; }
+    window.alert(`${server.name}\\nInvite code: ${server.invite_code || "Unavailable"}\\nShare this code only with people you want to join.`);
+  }
+
+  async function manageServerRoles() {
+    const server = state.servers.find((item) => item.id === state.activeServerId);
+    if (!server) { toast("Select a server first.", "error"); return; }
+    if (server.role !== "owner") { toast("Only the server owner can manage member roles.", "error"); return; }
+    const username = window.prompt("Username of an existing server member:");
+    if (username === null || !username.trim()) return;
+    const role = window.prompt("Set role: type admin or member", "admin");
+    if (role === null) return;
+    const normalized = role.trim().toLowerCase();
+    if (!["admin", "member"].includes(normalized)) { toast("Role must be admin or member.", "error"); return; }
+    try {
+      const res = await api("/api/servers/role", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ server_id: server.id, username: username.trim(), role: normalized }) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not change role.");
+      toast(`${username} is now ${normalized}.`);
+      await refreshSync();
+    } catch (err) { toast(err.message || "Could not change role.", "error"); }
+  }
+
+  async function openDirectMessage() {
+    const username = window.prompt("Username to message:");
+    if (username === null || !username.trim()) return;
+    try {
+      const res = await api("/api/dm/open", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: username.trim() }) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not open direct message.");
+      if (!state.rooms.some((room) => room.id === data.id)) state.rooms.push(data);
+      selectRoom(data.id);
+      toast(`Direct message with ${data.name} opened.`);
+    } catch (err) { toast(err.message || "Could not open direct message.", "error"); }
+  }
+
+  async function sendAttachment() {
+    const file = ui.fileInput.files && ui.fileInput.files[0];
+    ui.fileInput.value = "";
+    if (!file) return;
+    if (file.size > 40 * 1024) { toast("For this encrypted chat build, attachments must be 40 KB or smaller.", "error"); return; }
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const data = bytesToB64(bytes);
+      const payload = "__TS_ATTACHMENT_V1__:" + JSON.stringify({ name: file.name.slice(0, 160), type: file.type || "application/octet-stream", data });
+      await sendText(payload, null);
+      toast(`Encrypted attachment sent: ${file.name}`);
+    } catch (err) { toast(err.message || "Could not attach that file.", "error"); }
+  }
+
   async function createRoom(event) {
     event.preventDefault();
     if (event.submitter && event.submitter.value === "cancel") {
@@ -1395,11 +1546,15 @@
       return;
     }
     ui.roomError.textContent = "";
+    if (!state.activeServerId) {
+      ui.roomError.textContent = "Create or join a server first.";
+      return;
+    }
     try {
       const res = await api("/api/rooms", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, description, admin_key: adminKey }),
+        body: JSON.stringify({ name, description, server_id: state.activeServerId, admin_key: adminKey }),
       });
       if (!res.ok) {
         let detail = "Could not create the group.";
