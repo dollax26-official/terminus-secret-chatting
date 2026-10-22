@@ -24,6 +24,8 @@ jobs:
         run: python tools/smoke_test.py
       - name: Compile host server and settings manager
         run: python -m py_compile server/host.py server/settings_app.py
+      - name: Check scroll behavior in host manager and shared client
+        run: python tools/ui_scroll_checks.py
       - name: Check host manager and chat scroll invariants
         run: python tools/ui_scroll_check.py
 
