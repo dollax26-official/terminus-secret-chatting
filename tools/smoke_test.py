@@ -286,7 +286,30 @@ def main():
         assert b"Terminus Secrets" in page
         assert "default-src 'self'" in headers.get("Content-Security-Policy", "")
 
-        print("PASS  host, pairing, auth, encryption, sync, at-rest, static UI")
+        # Restart against the same data directory: the vault passphrase and
+        # pairing code must survive restarts (and therefore IP/network changes).
+        original_passphrase = (DATA / "vault-passphrase.txt").read_text().strip()
+        process.terminate()
+        process.wait(timeout=5)
+        process = subprocess.Popen(
+            [sys.executable, str(HOST), "--port", str(PORT), "--data-dir", str(DATA)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        for _ in range(80):
+            try:
+                status, _, _ = request("/api/health")
+                if status == 200:
+                    break
+            except Exception:
+                time.sleep(0.25)
+        else:
+            raise RuntimeError("host did not restart")
+        assert (DATA / "pairing-code.txt").read_text().strip() == code
+        assert (DATA / "vault-passphrase.txt").read_text().strip() == original_passphrase
+
+        print("PASS  host, pairing, auth, encryption, sync, calls, stable credentials, at-rest, static UI")
         print(f"      devices={len(sync['devices'])} messages={len(sync['messages'])}")
     finally:
         process.terminate()
