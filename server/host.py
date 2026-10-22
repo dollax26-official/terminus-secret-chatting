@@ -415,7 +415,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header(
             "Permissions-Policy",
-            "camera=(), microphone=(), geolocation=(), payment=()",
+            "camera=(self), microphone=(self), display-capture=(self), geolocation=(), payment=()",
         )
 
     def _send_json(self, status: int, obj: dict) -> None:
