@@ -43,8 +43,8 @@ def request(path, method="GET", token=None, payload=None, account_token=None):
         return response.status, dict(response.headers), response.read()
 
 
-def get_json(path, token=None):
-    return json.loads(request(path, token=token)[2])
+def get_json(path, token=None, account_token=None):
+    return json.loads(request(path, token=token, account_token=account_token)[2])
 
 
 def encrypt(key, room, text):
@@ -89,7 +89,7 @@ def main():
         assert len(code) == 9
 
         try:
-            request("/api/sync", token="ts_invalid_token_0000000000")
+            request("/api/sync", token="ts_invalid_token_0000000000", account_token=account_token)
             raise AssertionError("invalid token was accepted")
         except urllib.error.HTTPError as exc:
             assert exc.code == 401, exc.code
@@ -132,7 +132,7 @@ def main():
         device_b = json.loads(body)
         assert device_b["device_id"] != device_a["device_id"]
 
-        vault = get_json("/api/vault", token=device_a["token"])
+        vault = get_json("/api/vault", token=device_a["token"], account_token=account_token)
         salt = base64.b64decode(vault["salt"])
         key = PBKDF2HMAC(
             algorithm=hashes.SHA256(), length=32, salt=salt, iterations=vault["iterations"]
@@ -144,6 +144,7 @@ def main():
             "/api/messages",
             method="POST",
             token=device_a["token"],
+            account_token=account_token,
             payload={
                 "room_id": "general",
                 "client_msg_id": "smoke-1",
@@ -153,7 +154,7 @@ def main():
         )
         assert status == 200, body
 
-        sync = get_json("/api/sync?after=0&wait=0", token=device_b["token"])
+        sync = get_json("/api/sync?after=0&wait=0", token=device_b["token"], account_token=account_token)
         assert sync["rooms"][0]["id"] == "general"
         assert len(sync["messages"]) == 1
         row = sync["messages"][0]
@@ -161,7 +162,7 @@ def main():
         assert decrypt(key, "general", row["nonce"], row["ciphertext"]) == secret_text
 
         # A second sync after the last id must be empty.
-        empty = get_json(f"/api/sync?after={sync['last_id']}&wait=0", token=device_b["token"])
+        empty = get_json(f"/api/sync?after={sync['last_id']}&wait=0", token=device_b["token"], account_token=account_token)
         assert empty["messages"] == []
 
         # Vault check blob round-trip (the web client stores a known marker).
@@ -173,12 +174,13 @@ def main():
             "/api/vault/check",
             method="POST",
             token=device_a["token"],
+            account_token=account_token,
             payload={
                 "nonce": base64.b64encode(marker_nonce).decode(),
                 "ciphertext": base64.b64encode(marker_ct).decode(),
             },
         )
-        check = get_json("/api/vault", token=device_b["token"])["check"]
+        check = get_json("/api/vault", token=device_b["token"], account_token=account_token)["check"]
         assert check is not None
         assert (
             AESGCM(key).decrypt(
