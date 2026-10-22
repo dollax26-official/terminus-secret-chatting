@@ -277,7 +277,7 @@ def main():
         third_sync = get_json("/api/sync?after=0&wait=0", token=third_device["token"])
         assert private_room["id"] in {room["id"] for room in third_sync["rooms"]}
 
-        ACCOUNT_TOKEN = account1_token
+        ACCOUNT_TOKEN = other_account["account_token"]
         # A normal member cannot rename or delete the owner's server.
         try:
             request("/api/servers/manage", method="POST", token=other_device["token"],
