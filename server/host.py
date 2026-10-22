@@ -65,6 +65,7 @@ PAIR_LOCK = threading.Lock()
 PAIR_ATTEMPTS: dict[str, list[float]] = {}
 LAST_SEEN_CACHE: dict[str, float] = {}
 TYPING_STATE: dict[tuple[str, str], float] = {}
+TYPING_VERSION = 0
 
 MIME_OVERRIDES = {
     ".js": "application/javascript; charset=utf-8",
@@ -567,6 +568,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _sync(self, device: sqlite3.Row, after: int, wait: int, updated_after: str = "", server_id: str = "") -> None:
         deadline = time.monotonic() + wait
+        typing_version = TYPING_VERSION
         while True:
             # Hold the condition lock while checking SQLite. The previous
             # check-then-wait sequence could miss a notify between the SELECT
@@ -601,7 +603,7 @@ class Handler(BaseHTTPRequestHandler):
                          device["account_id"], server_id, server_id),
                     ).fetchall()
                     remaining = deadline - time.monotonic()
-                    if rows or remaining <= 0 or wait == 0:
+                    if rows or remaining <= 0 or wait == 0 or TYPING_VERSION != typing_version:
                         rooms = conn.execute(
                             """SELECT r.id,
                                       CASE WHEN r.kind='dm' AND (SELECT COUNT(*) FROM room_members rm3 WHERE rm3.room_id=r.id)=2 THEN COALESCE(
@@ -741,6 +743,7 @@ class Handler(BaseHTTPRequestHandler):
 
     # -- POST -------------------------------------------------------------- #
     def do_POST(self) -> None:  # noqa: N802
+        global TYPING_VERSION
         parsed = urlparse(self.path)
         path = parsed.path
         try:
@@ -785,6 +788,7 @@ class Handler(BaseHTTPRequestHandler):
                 TYPING_STATE[key] = time.time()
             else:
                 TYPING_STATE.pop(key, None)
+            TYPING_VERSION += 1
             with MESSAGE_COND:
                 MESSAGE_COND.notify_all()
             self._send_json(200, {"ok": True})
@@ -953,7 +957,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._error(400, "device_id required")
                 return
             with db() as conn:
-                conn.execute("UPDATE devices SET revoked=1 WHERE id=?", (target,))
+                cur = conn.execute("UPDATE devices SET revoked=1 WHERE id=? AND account_id=?", (target, device["account_id"]))
+                if cur.rowcount == 0:
+                    self._error(404, "device not found for this account")
+                    return
             self._send_json(200, {"ok": True, "revoked": target})
             return
 
