@@ -37,7 +37,6 @@
     serverMembers: [],
     activeServerId: localStorage.getItem("ts.server") || "",
     searchQuery: "",
-    roomAdminRequired: false,
     devices: [],
     messages: [],
     messageIds: new Set(),
@@ -746,9 +745,6 @@
     if (!state.activeServerId || !state.servers.some((server) => server.id === state.activeServerId)) {
       state.activeServerId = state.servers[0]?.id || "";
       if (state.activeServerId) localStorage.setItem("ts.server", state.activeServerId);
-    }
-    if (typeof data.room_admin_required === "boolean") {
-      state.roomAdminRequired = data.room_admin_required;
     }
     state.devices = data.devices || state.devices;
     const typingNames = Array.from(new Set((data.typing || []).filter((item) => item.room_id === state.currentRoom).map((item) => item.username)));
