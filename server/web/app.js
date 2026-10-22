@@ -291,6 +291,7 @@
     ui.joinServerBtn = $("#joinServerBtn");
     ui.inviteServerBtn = $("#inviteServerBtn");
     ui.manageRolesBtn = $("#manageRolesBtn");
+    ui.newDmBtn = $("#newDmBtn");
     ui.roomTitle = $("#roomTitle");
     ui.messageSearch = $("#messageSearch");
     ui.roomMeta = $("#roomMeta");
@@ -434,6 +435,7 @@
     ui.joinServerBtn.addEventListener("click", joinServer);
     ui.inviteServerBtn.addEventListener("click", shareInvite);
     ui.manageRolesBtn.addEventListener("click", manageServerRoles);
+    ui.newDmBtn.addEventListener("click", createDirectMessage);
     ui.composer.addEventListener("submit", (event) => {
       event.preventDefault();
       submitComposer();
@@ -994,6 +996,34 @@
     }
   }
 
+  async function createDirectMessage() {
+    if (!state.currentServer) {
+      toast("Join or create a server first.", "error");
+      return;
+    }
+    const raw = window.prompt("Enter one or more member usernames, separated by commas:");
+    if (raw === null || !raw.trim()) return;
+    const usernames = raw.split(",").map((name) => name.trim()).filter(Boolean);
+    try {
+      const res = await api("/api/dms/create", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ server_id: state.currentServer, usernames }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not start direct message.");
+      const existing = state.rooms.find((room) => room.id === data.id);
+      if (!existing) state.rooms.push(data);
+      state.currentRoom = data.id;
+      localStorage.setItem(LS.room, data.id);
+      renderRooms();
+      updateHeader();
+      renderMessages();
+      toast("Direct message ready.");
+    } catch (err) {
+      toast(err.message || "Could not start direct message.", "error");
+    }
+  }
+
   async function manageServerRoles() {
     const server = state.servers.find((item) => item.id === state.currentServer);
     if (!server || server.role !== "owner") {
@@ -1045,7 +1075,7 @@
   /* ------------------------------------------------------------------- rooms */
   function renderRooms() {
     const signature =
-      state.rooms.map((room) => `${room.id}:${room.name}:${room.description || ""}`).join("|") +
+      state.rooms.map((room) => `${room.id}:${room.name}:${room.description || ""}:${room.kind || "channel"}`).join("|") +
       `|${state.currentRoom}|` +
       Array.from(state.unread.entries())
         .map(([id, count]) => `${id}=${count}`)
@@ -1057,14 +1087,14 @@
     for (const room of state.rooms) {
       const button = el("button", "room-btn" + (room.id === state.currentRoom ? " active" : ""));
       button.type = "button";
-      button.append(el("span", "hash", "#"), el("span", "name", room.name));
+      button.append(el("span", "hash", room.kind === "dm" ? "@" : "#"), el("span", "name", room.name));
       const unread = state.unread.get(room.id) || 0;
       if (unread > 0 && room.id !== state.currentRoom) {
         button.append(el("span", "unread", unread > 99 ? "99+" : String(unread)));
       }
       button.addEventListener("click", () => selectRoom(room.id));
       fragment.append(button);
-      if (room.id !== "general") {
+      if (room.id !== "general" && room.kind !== "dm") {
         const manage = el("button", "room-manage", "···");
         manage.type = "button";
         manage.title = `Manage ${room.name}`;
@@ -1110,11 +1140,11 @@
 
   function updateHeader() {
     const room = currentRoom();
-    ui.roomTitle.textContent = `# ${room.name}`;
+    ui.roomTitle.textContent = `${room.kind === "dm" ? "@" : "#"} ${room.name}`;
     const count = state.devices.length || 1;
     const description = room.description ? `${room.description} · ` : "";
     ui.roomMeta.textContent = `${description}${count} device${count === 1 ? "" : "s"} · end-to-end encrypted`;
-    ui.input.placeholder = `Message #${room.name}`;
+    ui.input.placeholder = `Message ${room.kind === "dm" ? "@" : "#"}${room.name}`;
   }
 
   /* ---------------------------------------------------------------- messages */
@@ -1477,7 +1507,7 @@
     if (!text.trim()) return;
     const replyTo = state.replyTo;
     state.replyTo = null;
-    ui.input.placeholder = `Message #${currentRoom().name || "general"}`;
+    ui.input.placeholder = `Message ${currentRoom().kind === "dm" ? "@" : "#"}${currentRoom().name || "general"}`;
     ui.input.value = "";
     autoGrow();
     sendText(text, replyTo);
