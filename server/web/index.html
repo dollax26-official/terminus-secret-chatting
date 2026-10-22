@@ -40,7 +40,30 @@
       <span class="pulse"></span><span id="hostBadgeText">Locating host…</span>
     </div>
 
-    <form id="connectForm" autocomplete="off" novalidate>
+    <section id="accountPanel" class="account-panel">
+      <h2 id="accountTitle">Sign in to this server</h2>
+      <p class="field-hint">Create an account on this server before pairing a device. Your username is unique to this server.</p>
+      <form id="accountForm" autocomplete="on" novalidate>
+        <label class="field">
+          <span>Username</span>
+          <input id="accountUsername" name="username" maxlength="24" minlength="3" autocomplete="username" placeholder="your_username" required>
+        </label>
+        <label class="field">
+          <span>Display name <small>(shown to others; not unique)</small></span>
+          <input id="accountDisplayName" name="display_name" maxlength="32" autocomplete="nickname" placeholder="How others see you">
+        </label>
+        <label class="field">
+          <span>Password</span>
+          <input id="accountPassword" name="password" type="password" minlength="10" maxlength="256" autocomplete="current-password" required>
+        </label>
+        <button id="accountBtn" class="primary" type="submit">Sign in</button>
+        <p id="accountError" class="form-error" role="alert"></p>
+      </form>
+      <button id="accountModeBtn" class="linkish" type="button">Need an account? Create one</button>
+      <p class="field-hint">Usernames are unique on this host. Display names may be reused by any number of accounts.</p>
+    </section>
+
+    <form id="connectForm" autocomplete="off" novalidate hidden>
       <div id="pairFields">
         <div id="authSwitch" class="auth-switch" role="tablist" aria-label="Enrollment method">
           <button type="button" class="active" data-auth="code" role="tab" aria-selected="true">Pairing code</button>
@@ -129,11 +152,33 @@
       <span class="live-dot" id="railLive" title="Connected"></span>
     </header>
 
-    <div class="rail-head">
-      <span class="eyebrow">GROUPS</span>
-      <button id="newRoomBtn" class="icon-btn" title="New group" aria-label="New group">+</button>
+    <div class="rail-head saved-host-head">
+      <span class="eyebrow">SAVED HOSTS</span>
+      <button id="addHostBtn" class="icon-btn" title="Add a host by IPv6 address" aria-label="Add host">＋</button>
     </div>
-    <nav id="roomList" class="rooms" aria-label="Groups"></nav>
+    <nav id="savedHostList" class="rooms saved-host-list" aria-label="Saved hosts"></nav>
+
+    <div class="rail-head server-head">
+      <span class="eyebrow">SERVERS</span>
+      <div class="server-actions">
+        <button id="createServerBtn" class="icon-btn" title="Create server" aria-label="Create server">+</button>
+        <button id="joinServerBtn" class="icon-btn" title="Join with invite" aria-label="Join server">↗</button>
+        <button id="inviteServerBtn" class="icon-btn" title="Show invite code" aria-label="Show invite code">ⓘ</button>
+        <button id="manageServerBtn" class="icon-btn" title="Edit or delete selected server" aria-label="Edit or delete selected server">···</button>
+        <button id="manageRolesBtn" class="icon-btn" title="Manage member roles" aria-label="Manage member roles">♙</button>
+      </div>
+    </div>
+    <select id="serverSelect" class="server-select" aria-label="Active server"></select>
+    <div class="rail-head channel-head">
+      <span class="eyebrow">CHANNELS</span>
+      <button id="newRoomBtn" class="icon-btn" title="New channel" aria-label="New channel">+</button>
+    </div>
+    <nav id="roomList" class="rooms" aria-label="Channels"></nav>
+    <div class="rail-head dm-head">
+      <span class="eyebrow">DIRECT MESSAGES</span>
+      <button id="newDmBtn" class="icon-btn" title="New direct message" aria-label="New direct message">+</button>
+    </div>
+    <nav id="dmList" class="rooms dm-list" aria-label="Direct messages"></nav>
 
     <footer class="rail-foot">
       <div class="me-card">
@@ -144,6 +189,8 @@
         </div>
       </div>
       <button id="infoBtn" class="ghost-btn">Host &amp; devices</button>
+      <button id="settingsBtn" class="ghost-btn">Appearance settings</button>
+      <button id="switchAccountBtn" class="ghost-btn">Switch account / sign out</button>
     </footer>
   </aside>
 
@@ -154,7 +201,13 @@
         <h2 id="roomTitle"># general</h2>
         <p id="roomMeta">Establishing secure session…</p>
       </div>
+      <label class="chat-search" aria-label="Search messages">
+        <span>⌕</span><input id="searchInput" type="search" placeholder="Search messages…" autocomplete="off">
+      </label>
       <div class="head-badges">
+        <button id="audioCallBtn" class="icon-btn call-action" type="button" title="Start voice call" aria-label="Start voice call">☎</button>
+        <button id="videoCallBtn" class="icon-btn call-action" type="button" title="Start video call" aria-label="Start video call">▣</button>
+        <button id="screenCallBtn" class="icon-btn call-action" type="button" title="Share screen in a call" aria-label="Share screen" disabled>▤</button>
         <span class="badge lock-badge">
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
           AES-256-GCM
@@ -171,14 +224,34 @@
       <h3 id="emptyTitle">Nothing here yet.</h3>
       <p id="emptyText">Send the first message. It is encrypted on this device before it leaves.</p>
     </div>
+    <p id="typingIndicator" class="typing-indicator" hidden></p>
 
     <form id="composer" class="composer" autocomplete="off">
+      <button id="attachBtn" class="attach-btn" type="button" title="Attach a file" aria-label="Attach a file">＋</button>
+      <button id="voiceMessageBtn" class="attach-btn voice-message-btn" type="button" title="Record voice message (max 12 seconds)" aria-label="Record voice message">🎙</button>
+      <input id="fileInput" type="file" hidden>
       <textarea id="input" rows="1" placeholder="Message #general"
                 aria-label="Message" maxlength="8000"></textarea>
       <button id="sendBtn" class="send-btn" type="submit" aria-label="Send message">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12 20 4l-4.5 16L12 13l-8-1Z"/><path d="M12 13l8-9"/></svg>
       </button>
     </form>
+    <section id="callPanel" class="call-panel" hidden aria-label="Call controls">
+      <div class="call-panel-head">
+        <div><strong id="callTitle">Call</strong><small id="callStatus">Connecting…</small></div>
+        <div class="call-controls">
+          <button id="muteCallBtn" class="ghost-btn" type="button">Mute mic</button>
+          <button id="cameraCallBtn" class="ghost-btn" type="button">Camera off</button>
+          <button id="shareCallBtn" class="ghost-btn" type="button">Share screen</button>
+          <button id="endCallBtn" class="danger-btn" type="button">End call</button>
+        </div>
+      </div>
+      <div class="call-videos">
+        <video id="remoteCallVideo" autoplay playsinline></video>
+        <video id="localCallVideo" autoplay muted playsinline></video>
+        <audio id="remoteCallAudio" autoplay></audio>
+      </div>
+    </section>
     <p class="composer-hint">
       <span class="hint-desktop"><span class="mono">ENTER</span> send · <span class="mono">SHIFT+ENTER</span> newline · history saved on the host</span>
       <span class="hint-mobile">Encrypted on this device · history stays on the host</span>
@@ -223,24 +296,131 @@
   </form>
 </dialog>
 
+<dialog id="settingsDialog" class="dialog">
+  <form id="settingsForm" class="dialog-inner" method="dialog">
+    <header class="dialog-head">
+      <h3>Appearance settings</h3>
+      <button value="close" class="icon-btn" aria-label="Close">×</button>
+    </header>
+    <p class="muted">These preferences are saved on this device and do not change other users' appearance.</p>
+    <label class="field">
+      <span>Background color</span>
+      <input id="backgroundColorInput" type="color" value="#06090e" aria-label="Background color">
+    </label>
+    <label class="field">
+      <span>Accent color</span>
+      <input id="accentColorInput" type="color" value="#3ee0c5" aria-label="Accent color">
+    </label>
+    <footer class="dialog-foot">
+      <button id="resetAppearanceBtn" type="button" class="ghost-btn">Reset defaults</button>
+      <button value="close" class="primary small">Done</button>
+    </footer>
+  </form>
+</dialog>
+
 <dialog id="roomDialog" class="dialog">
   <form id="roomForm" class="dialog-inner" method="dialog">
     <header class="dialog-head">
-      <h3>New group</h3>
+      <h3 id="roomDialogTitle">New channel</h3>
       <button value="cancel" class="icon-btn" aria-label="Close">×</button>
     </header>
     <label class="field">
-      <span>Group name</span>
+      <span>Channel name</span>
       <input id="roomNameInput" maxlength="32" placeholder="operations" autocomplete="off">
     </label>
     <label class="field">
-      <span>Description (optional)</span>
-      <input id="roomDescriptionInput" maxlength="120" placeholder="What belongs in this group?" autocomplete="off">
+      <span>Category (optional)</span>
+      <input id="roomCategoryInput" maxlength="32" placeholder="Text channels" autocomplete="off">
     </label>
+    <label class="field">
+      <span>Description (optional)</span>
+      <input id="roomDescriptionInput" maxlength="120" placeholder="What belongs in this channel?" autocomplete="off">
+    </label>
+    <label class="private-channel-toggle"><input id="roomPrivateInput" type="checkbox"> Private channel — only invited members can read it</label>
     <p class="form-error" id="roomError" role="alert"></p>
+    <footer class="dialog-foot room-dialog-actions">
+      <div class="foot-left">
+        <button type="button" id="addRoomMemberBtn" class="ghost-btn compact" hidden>Add member</button>
+        <button type="button" id="deleteRoomBtn" class="danger-btn" hidden>Delete channel</button>
+      </div>
+      <div class="foot-right">
+        <button type="button" value="cancel" class="ghost-btn" data-close>Cancel</button>
+        <button type="submit" id="roomSubmitBtn" class="primary small">Create channel</button>
+      </div>
+    </footer>
+  </form>
+</dialog>
+
+<dialog id="serverDialog" class="dialog">
+  <form id="serverForm" class="dialog-inner" method="dialog">
+    <header class="dialog-head">
+      <h3 id="serverDialogTitle">Server settings</h3>
+      <button type="button" id="closeServerDialogBtn" class="icon-btn" aria-label="Close">×</button>
+    </header>
+    <p class="muted">Only the server owner can change these settings. Deleting a server also removes its channels and message history.</p>
+    <label class="field">
+      <span>Server name</span>
+      <input id="serverNameInput" maxlength="48" autocomplete="off" required>
+    </label>
+    <label class="field">
+      <span>Description</span>
+      <textarea id="serverDescriptionInput" rows="3" maxlength="160" placeholder="What is this server for?"></textarea>
+    </label>
+    <p id="serverError" class="form-error" role="alert"></p>
+    <footer class="dialog-foot room-dialog-actions">
+      <div class="foot-left">
+        <button type="button" id="deleteServerBtn" class="danger-btn">Delete server</button>
+      </div>
+      <div class="foot-right">
+        <button type="button" id="cancelServerDialogBtn" class="ghost-btn">Cancel</button>
+        <button type="submit" id="saveServerBtn" class="primary small">Save changes</button>
+      </div>
+    </footer>
+  </form>
+</dialog>
+
+<dialog id="roleDialog" class="dialog">
+  <form id="roleForm" class="dialog-inner" method="dialog">
+    <header class="dialog-head">
+      <h3>Server members &amp; roles</h3>
+      <button type="button" id="closeRoleDialogBtn" class="icon-btn" aria-label="Close">×</button>
+    </header>
+    <p class="muted">Only the server owner can change roles. Use a unique username; display names may repeat.</p>
+    <ul id="roleMemberList" class="role-member-list" aria-label="Current server members"></ul>
+    <label class="field">
+      <span>Member username</span>
+      <input id="roleUsername" maxlength="24" autocomplete="off" placeholder="unique_username" required>
+    </label>
+    <label class="field">
+      <span>Assign role</span>
+      <select id="roleValue">
+        <option value="admin">Admin — manage channels and private membership</option>
+        <option value="member">Member — regular access</option>
+      </select>
+    </label>
+    <p id="roleError" class="form-error" role="alert"></p>
     <footer class="dialog-foot">
-      <button type="button" value="cancel" class="ghost-btn" data-close>Cancel</button>
-      <button type="submit" class="primary small">Create group</button>
+      <button type="button" class="ghost-btn" id="closeRoleDialogBtnBottom">Cancel</button>
+      <button type="submit" id="roleSubmitBtn" class="primary small">Save role</button>
+    </footer>
+  </form>
+</dialog>
+
+<dialog id="roomMemberDialog" class="dialog">
+  <form id="roomMemberForm" class="dialog-inner" method="dialog">
+    <header class="dialog-head">
+      <h3>Add private-channel member</h3>
+      <button type="button" id="closeRoomMemberDialogBtn" class="icon-btn" aria-label="Close">×</button>
+    </header>
+    <p class="muted">The person must already be a member of this server. Only invited members, server owners, and admins can access this private channel.</p>
+    <label class="field">
+      <span>Member username</span>
+      <input id="roomMemberUsername" maxlength="24" autocomplete="off" placeholder="unique_username" required>
+    </label>
+    <p id="roomMemberError" class="form-error" role="alert"></p>
+    <footer class="dialog-foot">
+      <button type="button" class="ghost-btn" id="cancelRoomMemberDialogBtn">Cancel</button>
+      <button type="submit" id="roomMemberSubmitBtn" class="primary small">Add member</button>
     </footer>
   </form>
 </dialog>

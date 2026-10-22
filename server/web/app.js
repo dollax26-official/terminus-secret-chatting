@@ -10,6 +10,8 @@
   const dec = new TextDecoder();
   const LS = {
     token: "ts.token",
+    accountToken: "ts.account-token",
+    account: "ts.account",
     device: "ts.device",
     name: "ts.name",
     room: "ts.room",
@@ -20,6 +22,9 @@
 
   const state = {
     mode: "pair",
+    accountToken: localStorage.getItem(LS.accountToken) || "",
+    account: (() => { try { return JSON.parse(localStorage.getItem(LS.account) || "null"); } catch (_) { return null; } })(),
+    accountMode: "login",
     token: localStorage.getItem(LS.token) || "",
     deviceId: localStorage.getItem(LS.device) || "",
     deviceName: localStorage.getItem(LS.name) || guessDeviceName(),
@@ -28,20 +33,40 @@
     iterations: 600000,
     key: null,
     rooms: [],
+    servers: [],
+    serverMembers: [],
+    activeServerId: localStorage.getItem("ts.server") || "",
+    searchQuery: "",
     devices: [],
     messages: [],
+    messageIds: new Set(),
     lastId: 0,
+    syncSince: "",
+    replyTo: null,
     currentRoom: localStorage.getItem(LS.room) || "general",
+    editingRoomId: null,
+    editingServerId: null,
     unread: new Map(),
     lastRendered: { day: null, device: null, at: 0 },
     polling: false,
     online: false,
     stopped: false,
     toastTimer: null,
+    typingTimer: null,
+    typingLastSent: 0,
     connecting: false,
     authMethod: "code",
     roomSignature: "",
     newBelow: 0,
+    call: null,
+    callSignalCursor: {},
+    callSignalBusy: false,
+    callSignalTimer: null,
+    voiceRecorder: null,
+    voiceChunks: [],
+    voiceStopTimer: null,
+    savedHosts: [],
+    features: { photos: true, voice_messages: true, voice_calls: true, video_calls: true, screen_sharing: true },
   };
 
   const ui = {};
@@ -143,7 +168,10 @@
   }
 
   function authHeaders(extra = {}) {
-    return { Authorization: `Bearer ${state.token}`, ...extra };
+    const headers = { ...extra };
+    if (state.token) headers.Authorization = `Bearer ${state.token}`;
+    if (state.accountToken) headers["X-Account-Token"] = state.accountToken;
+    return headers;
   }
 
   function api(path, options = {}) {
@@ -271,11 +299,33 @@
     ui.hostBadge = $("#hostBadge");
     ui.hostBadgeText = $("#hostBadgeText");
     ui.roomList = $("#roomList");
+    ui.dmList = $("#dmList");
+    ui.savedHostList = $("#savedHostList");
+    ui.addHostBtn = $("#addHostBtn");
+    ui.serverSelect = $("#serverSelect");
+    ui.searchInput = $("#searchInput");
+    ui.fileInput = $("#fileInput");
+    ui.attachBtn = $("#attachBtn");
+    ui.voiceMessageBtn = $("#voiceMessageBtn");
+    ui.audioCallBtn = $("#audioCallBtn");
+    ui.videoCallBtn = $("#videoCallBtn");
+    ui.screenCallBtn = $("#screenCallBtn");
+    ui.callPanel = $("#callPanel");
+    ui.callTitle = $("#callTitle");
+    ui.callStatus = $("#callStatus");
+    ui.localCallVideo = $("#localCallVideo");
+    ui.remoteCallVideo = $("#remoteCallVideo");
+    ui.remoteCallAudio = $("#remoteCallAudio");
+    ui.muteCallBtn = $("#muteCallBtn");
+    ui.cameraCallBtn = $("#cameraCallBtn");
+    ui.shareCallBtn = $("#shareCallBtn");
+    ui.endCallBtn = $("#endCallBtn");
     ui.roomTitle = $("#roomTitle");
     ui.roomMeta = $("#roomMeta");
     ui.syncState = $("#syncState");
     ui.railLive = $("#railLive");
     ui.messages = $("#messages");
+    ui.typingIndicator = $("#typingIndicator");
     ui.jumpBtn = $("#jumpBtn");
     ui.emptyState = $("#emptyState");
     ui.emptyTitle = $("#emptyTitle");
@@ -286,6 +336,11 @@
     ui.meName = $("#meName");
     ui.meMeta = $("#meMeta");
     ui.meAvatar = $("#meAvatar");
+    ui.settingsBtn = $("#settingsBtn");
+    ui.settingsDialog = $("#settingsDialog");
+    ui.backgroundColorInput = $("#backgroundColorInput");
+    ui.accentColorInput = $("#accentColorInput");
+    ui.resetAppearanceBtn = $("#resetAppearanceBtn");
     ui.infoDialog = $("#infoDialog");
     ui.infoHost = $("#infoHost");
     ui.infoFingerprint = $("#infoFingerprint");
@@ -293,17 +348,128 @@
     ui.copyFingerprintBtn = $("#copyFingerprintBtn");
     ui.notifyBtn = $("#notifyBtn");
     ui.changeHostBtn = $("#changeHostBtn");
+    ui.serverDialog = $("#serverDialog");
+    ui.serverForm = $("#serverForm");
+    ui.serverDialogTitle = $("#serverDialogTitle");
+    ui.serverNameInput = $("#serverNameInput");
+    ui.serverDescriptionInput = $("#serverDescriptionInput");
+    ui.serverError = $("#serverError");
+    ui.saveServerBtn = $("#saveServerBtn");
+    ui.deleteServerBtn = $("#deleteServerBtn");
     ui.roomDialog = $("#roomDialog");
     ui.roomForm = $("#roomForm");
+    ui.roomDialogTitle = $("#roomDialogTitle");
+    ui.roomSubmitBtn = $("#roomSubmitBtn");
+    ui.deleteRoomBtn = $("#deleteRoomBtn");
+    ui.addRoomMemberBtn = $("#addRoomMemberBtn");
     ui.roomNameInput = $("#roomNameInput");
+    ui.roomCategoryInput = $("#roomCategoryInput");
     ui.roomDescriptionInput = $("#roomDescriptionInput");
+    ui.roomPrivateInput = $("#roomPrivateInput");
     ui.roomError = $("#roomError");
     ui.toast = $("#toast");
     ui.rail = $("#rail");
     ui.backdrop = $("#backdrop");
   }
 
+  function toggleAccountMode() {
+    state.accountMode = state.accountMode === "login" ? "register" : "login";
+    ui.accountTitle.textContent = state.accountMode === "login" ? "Sign in to this server" : "Create your account";
+    ui.accountBtn.textContent = state.accountMode === "login" ? "Sign in" : "Create account";
+    ui.accountModeBtn.textContent = state.accountMode === "login" ? "Need an account? Create one" : "Already registered? Sign in";
+    ui.accountPassword.autocomplete = state.accountMode === "login" ? "current-password" : "new-password";
+    if (ui.accountDisplayName) ui.accountDisplayName.closest(".field").hidden = state.accountMode === "login";
+    ui.accountError.textContent = "";
+  }
+
+  async function onAccountSubmit(event) {
+    event.preventDefault();
+    ui.accountError.textContent = "";
+    const username = ui.accountUsername.value.trim();
+    const password = ui.accountPassword.value;
+    const displayName = ui.accountDisplayName?.value.trim() || username;
+    if (!username || !password) {
+      ui.accountError.textContent = "Enter both your username and password.";
+      return;
+    }
+    ui.accountBtn.disabled = true;
+    try {
+      const endpoint = state.accountMode === "register" ? "/api/accounts/register" : "/api/accounts/login";
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password, display_name: displayName }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Account authentication failed.");
+      state.accountToken = data.account_token;
+      state.account = data.account;
+      localStorage.setItem(LS.accountToken, state.accountToken);
+      localStorage.setItem(LS.account, JSON.stringify(state.account));
+      ui.accountPanel.hidden = true;
+      ui.connectForm.hidden = false;
+      ui.accountPassword.value = "";
+      if (state.token) setMode("unlock");
+      else setMode("pair");
+      toast(`Signed in as ${state.account.display_name || state.account.username}.`);
+    } catch (err) {
+      ui.accountError.textContent = err.message || "Account authentication failed.";
+    } finally {
+      ui.accountBtn.disabled = false;
+    }
+  }
+
+  function applyAppearance() {
+    const background = ui.backgroundColorInput.value || "#06090e";
+    const accent = ui.accentColorInput.value || "#3ee0c5";
+    document.documentElement.style.setProperty("--bg", background);
+    document.documentElement.style.setProperty("--bg-2", background);
+    document.documentElement.style.setProperty("--accent", accent);
+    document.documentElement.style.setProperty("--accent-soft", accent + "20");
+    document.documentElement.style.setProperty("--accent-line", accent + "55");
+    try {
+      localStorage.setItem("ts.appearance", JSON.stringify({ background, accent }));
+    } catch (_) {}
+  }
+
+  function openSettings() {
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem("ts.appearance") || "{}"); } catch (_) {}
+    ui.backgroundColorInput.value = saved.background || "#06090e";
+    ui.accentColorInput.value = saved.accent || "#3ee0c5";
+    applyAppearance();
+    ui.settingsDialog.showModal();
+  }
+
   function bindEvents() {
+    ui.roleDialog = $("#roleDialog");
+    ui.roleForm = $("#roleForm");
+    ui.roleMemberList = $("#roleMemberList");
+    ui.roleUsername = $("#roleUsername");
+    ui.roleValue = $("#roleValue");
+    ui.roleError = $("#roleError");
+    ui.roleSubmitBtn = $("#roleSubmitBtn");
+    ui.roomMemberDialog = $("#roomMemberDialog");
+    ui.roomMemberForm = $("#roomMemberForm");
+    ui.roomMemberUsername = $("#roomMemberUsername");
+    ui.roomMemberError = $("#roomMemberError");
+    ui.roomMemberSubmitBtn = $("#roomMemberSubmitBtn");
+    ui.roleForm.addEventListener("submit", submitServerRole);
+    ui.roomMemberForm.addEventListener("submit", submitEditingRoomMember);
+    $("#closeRoleDialogBtn").addEventListener("click", () => ui.roleDialog.close());
+    $("#closeRoleDialogBtnBottom").addEventListener("click", () => ui.roleDialog.close());
+    $("#closeRoomMemberDialogBtn").addEventListener("click", () => ui.roomMemberDialog.close());
+    $("#cancelRoomMemberDialogBtn").addEventListener("click", () => ui.roomMemberDialog.close());
+    ui.accountForm = $("#accountForm");
+    ui.accountPanel = $("#accountPanel");
+    ui.accountError = $("#accountError");
+    ui.accountBtn = $("#accountBtn");
+    ui.accountModeBtn = $("#accountModeBtn");
+    ui.accountUsername = $("#accountUsername");
+    ui.accountPassword = $("#accountPassword");
+    ui.accountDisplayName = $("#accountDisplayName");
+    ui.accountForm.addEventListener("submit", onAccountSubmit);
+    ui.accountModeBtn.addEventListener("click", toggleAccountMode);
     ui.connectForm.addEventListener("submit", onConnect);
     ui.revealBtn.addEventListener("click", () => {
       const show = ui.passInput.type === "password";
@@ -327,13 +493,51 @@
       event.preventDefault();
       submitComposer();
     });
+    ui.addHostBtn.addEventListener("click", addSavedHost);
+    ui.serverSelect.addEventListener("change", () => {
+      state.activeServerId = ui.serverSelect.value;
+      localStorage.setItem("ts.server", state.activeServerId);
+      const first = state.rooms.find((room) => room.kind !== "dm" && room.server_id === state.activeServerId);
+      if (first) selectRoom(first.id); else renderRooms();
+    });
+    $("#createServerBtn").addEventListener("click", createServer);
+    $("#joinServerBtn").addEventListener("click", joinServer);
+    $("#inviteServerBtn").addEventListener("click", showServerInvite);
+    $("#manageServerBtn").addEventListener("click", manageServer);
+    ui.serverForm.addEventListener("submit", saveServerChanges);
+    ui.deleteServerBtn.addEventListener("click", deleteSelectedServer);
+    $("#closeServerDialogBtn").addEventListener("click", () => ui.serverDialog.close());
+    $("#cancelServerDialogBtn").addEventListener("click", () => ui.serverDialog.close());
+    $("#manageRolesBtn").addEventListener("click", manageServerRoles);
+    $("#newDmBtn").addEventListener("click", openDirectMessage);
+    ui.searchInput.addEventListener("input", () => {
+      state.searchQuery = ui.searchInput.value.trim().toLocaleLowerCase();
+      renderMessages();
+    });
+    ui.attachBtn.addEventListener("click", () => ui.fileInput.click());
+    ui.fileInput.addEventListener("change", sendAttachment);
+    ui.voiceMessageBtn.addEventListener("click", toggleVoiceRecording);
+    ui.audioCallBtn.addEventListener("click", () => startCall("audio"));
+    ui.videoCallBtn.addEventListener("click", () => startCall("video"));
+    ui.screenCallBtn.addEventListener("click", toggleScreenShare);
+    ui.muteCallBtn.addEventListener("click", toggleCallMute);
+    ui.cameraCallBtn.addEventListener("click", toggleCallCamera);
+    ui.shareCallBtn.addEventListener("click", toggleScreenShare);
+    ui.endCallBtn.addEventListener("click", () => endCall(true));
     ui.input.addEventListener("keydown", (event) => {
       if (event.key === "Enter" && !event.shiftKey) {
         event.preventDefault();
         submitComposer();
       }
     });
-    ui.input.addEventListener("input", autoGrow);
+    ui.input.addEventListener("input", () => {
+      autoGrow();
+      const typing = Boolean(ui.input.value.trim());
+      if (typing) sendTyping(true);
+      clearTimeout(state.typingTimer);
+      if (typing) state.typingTimer = setTimeout(() => sendTyping(false), 2200);
+      else sendTyping(false);
+    });
     ui.messages.addEventListener("scroll", updateJump, { passive: true });
     ui.jumpBtn.addEventListener("click", () => scrollToBottom());
 
@@ -348,11 +552,27 @@
     $("#newRoomBtn").addEventListener("click", () => {
       ui.roomError.textContent = "";
       ui.roomNameInput.value = "";
+      ui.roomCategoryInput.value = "";
       ui.roomDescriptionInput.value = "";
+      ui.roomPrivateInput.checked = false;
+      ui.roomPrivateInput.disabled = false;
+      state.editingRoomId = null;
+      ui.roomDialogTitle.textContent = "New channel";
+      ui.roomSubmitBtn.textContent = "Create channel";
+      ui.deleteRoomBtn.hidden = true;
+      ui.addRoomMemberBtn.hidden = true;
       ui.roomDialog.showModal();
       setTimeout(() => ui.roomNameInput.focus(), 40);
     });
     $("#infoBtn").addEventListener("click", openInfo);
+    ui.settingsBtn.addEventListener("click", openSettings);
+    ui.backgroundColorInput.addEventListener("input", applyAppearance);
+    ui.accentColorInput.addEventListener("input", applyAppearance);
+    ui.resetAppearanceBtn.addEventListener("click", () => {
+      ui.backgroundColorInput.value = "#06090e";
+      ui.accentColorInput.value = "#3ee0c5";
+      applyAppearance();
+    });
     $("#lockBtn").addEventListener("click", lockAndForget);
     ui.copyFingerprintBtn.addEventListener("click", copyFingerprint);
     ui.notifyBtn.addEventListener("click", enableNotifications);
@@ -361,8 +581,33 @@
       localStorage.removeItem(LS.device);
       location.href = "/setup";
     });
+    $("#switchAccountBtn").addEventListener("click", async () => {
+      if (state.accountToken) {
+        try {
+          await fetch("/api/accounts/logout", { method: "POST", headers: authHeaders({ "Content-Type": "application/json" }), body: "{}" });
+        } catch (_) {}
+      }
+      state.accountToken = "";
+      state.account = null;
+      state.token = "";
+      state.deviceId = "";
+      state.key = null;
+      localStorage.removeItem(LS.accountToken);
+      localStorage.removeItem(LS.account);
+      localStorage.removeItem(LS.token);
+      localStorage.removeItem(LS.device);
+      ui.chatView.hidden = true;
+      ui.connectView.hidden = false;
+      ui.accountPanel.hidden = false;
+      ui.connectForm.hidden = true;
+      state.accountMode = "login";
+      toggleAccountMode();
+      toggleAccountMode();
+    });
 
     ui.roomForm.addEventListener("submit", createRoom);
+    ui.deleteRoomBtn.addEventListener("click", deleteEditingRoom);
+    ui.addRoomMemberBtn.addEventListener("click", addEditingRoomMember);
     ui.roomDialog.querySelectorAll("[data-close]").forEach((button) => {
       button.addEventListener("click", () => ui.roomDialog.close());
     });
@@ -382,6 +627,13 @@
     window.addEventListener("beforeunload", () => {
       state.stopped = true;
     });
+
+    try {
+      const savedAppearance = JSON.parse(localStorage.getItem("ts.appearance") || "{}");
+      document.documentElement.style.setProperty("--bg", savedAppearance.background || "#06090e");
+      document.documentElement.style.setProperty("--bg-2", savedAppearance.background || "#06090e");
+      document.documentElement.style.setProperty("--accent", savedAppearance.accent || "#3ee0c5");
+    } catch (_) {}
 
     if ("serviceWorker" in navigator && location.protocol === "https:") {
       navigator.serviceWorker.register("sw.js", { scope: "./" }).catch(() => {});
@@ -486,7 +738,7 @@
         }
         const res = await fetch("/api/pair", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: authHeaders({ "Content-Type": "application/json" }),
           body: JSON.stringify(payload),
         });
         const data = await res.json().catch(() => ({}));
@@ -558,7 +810,7 @@
     state.lastId = 0;
     while (guard < 50) {
       guard += 1;
-      const res = await api(`/api/sync?after=${state.lastId}&wait=0`);
+      const res = await api(`/api/sync?after=${state.lastId}&wait=0&updated_after=${encodeURIComponent(state.syncSince)}`);
       if (res.status === 401) {
         forgetToken();
         throw new Error("This device is no longer authorized. Pair it again.");
@@ -573,29 +825,81 @@
   /* ------------------------------------------------------------------- sync */
   async function applySync(data, options = {}) {
     state.rooms = data.rooms || state.rooms;
+    state.servers = data.servers || state.servers;
+    state.serverMembers = data.server_members || state.serverMembers;
+    if (!state.activeServerId || !state.servers.some((server) => server.id === state.activeServerId)) {
+      state.activeServerId = state.servers[0]?.id || "";
+      if (state.activeServerId) localStorage.setItem("ts.server", state.activeServerId);
+    }
     state.devices = data.devices || state.devices;
+    const typingNames = Array.from(new Set((data.typing || []).filter((item) => item.room_id === state.currentRoom).map((item) => item.display_name || item.username)));
+    ui.typingIndicator.hidden = typingNames.length === 0;
+    ui.typingIndicator.textContent = typingNames.length ? `${typingNames.join(", ")} ${typingNames.length === 1 ? "is" : "are"} typing…` : "";
     state.lastId = data.last_id ?? state.lastId;
+    state.syncSince = data.server_time || state.syncSince;
     if (data.you) state.deviceId = data.you;
 
+    let changedExisting = false;
     const incoming = [];
+    const decryptRows = [];
     for (const row of data.messages || []) {
-      if (state.messages.some((m) => m.id === row.id)) continue;
-
-      // Our own message echoed back: reconcile the optimistic bubble instead
-      // of adding a duplicate.
-      const local = state.messages.find(
-        (m) => m.client_msg_id === row.client_msg_id && String(m.id).startsWith("tmp-")
-      );
-      if (local) {
-        local.id = row.id;
-        local.created_at = row.created_at;
-        local.pending = false;
-        local.failed = false;
-        if (local.room_id === state.currentRoom) updateMessageNode(local);
+      const messageKey = String(row.id);
+      const existing = state.messages.find((m) => String(m.id) === messageKey);
+      if (existing) {
+        if (row.deleted) {
+          existing.deleted = true;
+          existing.text = "Message deleted";
+          existing.failedDecrypt = false;
+          existing.edited_at = row.edited_at || existing.edited_at;
+          existing.pinned = Boolean(row.pinned);
+          changedExisting = true;
+          continue;
+        }
+        if (row.edited_at && row.edited_at !== existing.edited_at) {
+          state.messages = state.messages.filter((m) => m !== existing);
+          state.messageIds.delete(messageKey);
+          changedExisting = true;
+        } else {
+          existing.pinned = Boolean(row.pinned);
+          continue;
+        }
+      }
+      if (row.deleted) {
+        state.messageIds.add(messageKey);
+        incoming.push({
+          id: row.id, client_msg_id: row.client_msg_id, room_id: row.room_id,
+          device_id: row.device_id, device_name: row.device_name || "Device",
+          created_at: row.created_at, text: "Message deleted", deleted: true,
+          edited_at: row.edited_at, pinned: Boolean(row.pinned), reply_to_id: row.reply_to_id,
+        });
         continue;
       }
+      state.messageIds.add(messageKey);
 
-      const text = await decryptMessage(row);
+      // Only search for optimistic messages when this row belongs to us.
+      // Avoid scanning the full local history for every other user's message.
+      if (row.device_id === state.deviceId) {
+        const local = state.messages.find(
+          (m) => m.client_msg_id === row.client_msg_id && String(m.id).startsWith("tmp-")
+        );
+        if (local) {
+          local.id = row.id;
+          local.created_at = row.created_at;
+          local.pending = false;
+          local.failed = false;
+          if (local.room_id === state.currentRoom) updateMessageNode(local);
+          continue;
+        }
+      }
+      decryptRows.push(row);
+    }
+
+    // WebCrypto can decrypt a batch concurrently; sequential awaits made large
+    // history syncs visibly block message rendering on slower phones.
+    const decryptedTexts = await Promise.all(decryptRows.map((row) => decryptMessage(row)));
+    for (let i = 0; i < decryptRows.length; i += 1) {
+      const row = decryptRows[i];
+      const text = decryptedTexts[i];
       incoming.push({
         id: row.id,
         client_msg_id: row.client_msg_id,
@@ -605,6 +909,11 @@
         created_at: row.created_at,
         text: text === null ? "" : text,
         failedDecrypt: text === null,
+        edited_at: row.edited_at || null,
+        deleted: Boolean(row.deleted),
+        pinned: Boolean(row.pinned),
+        reply_to_id: row.reply_to_id ?? null,
+        reactions: row.reactions || [],
       });
     }
 
@@ -612,7 +921,7 @@
       state.messages.push(message);
       if (message.room_id === state.currentRoom) {
         if (ui.chatView.hidden) continue;
-        appendMessage(message);
+        appendMessage(message, { updateEmpty: false });
       } else {
         state.unread.set(message.room_id, (state.unread.get(message.room_id) || 0) + 1);
       }
@@ -621,11 +930,15 @@
     renderRooms();
     if (!ui.chatView.hidden) {
       updateHeader();
-      updateEmptyState();
+      if (changedExisting) renderMessages();
+      else updateEmptyState();
     }
 
-    if (incoming.length && document.hidden) {
-      notifyNew(incoming[incoming.length - 1]);
+    const mention = incoming.find((message) => state.account?.username &&
+      (message.text || "").toLowerCase().includes("@" + state.account.username.toLowerCase()) &&
+      message.device_id !== state.deviceId);
+    if (incoming.length && (document.hidden || (mention && mention.room_id !== state.currentRoom))) {
+      notifyNew(mention || incoming[incoming.length - 1]);
     }
     updateTitle();
   }
@@ -635,7 +948,7 @@
     state.polling = true;
     while (!state.stopped) {
       try {
-        const res = await api(`/api/sync?after=${state.lastId}&wait=20`);
+        const res = await api(`/api/sync?after=${state.lastId}&wait=20&updated_after=${encodeURIComponent(state.syncSince)}`);
         if (res.status === 401) {
           lockOut("This device was revoked by the host.");
           break;
@@ -662,24 +975,27 @@
   }
 
   function enterChat() {
+    state.stopped = false;
     ui.connectView.hidden = true;
     ui.chatView.hidden = false;
     ui.passInput.value = "";
     ui.masterKeyInput.value = "";
     document.title = "Terminus Secrets";
-    ui.meName.textContent = state.deviceName || "This device";
-    ui.meMeta.textContent = "encrypted session";
-    ui.meAvatar.textContent = initials(state.deviceName);
+    ui.meName.textContent = state.account?.username || state.deviceName || "This device";
+    ui.meMeta.textContent = state.deviceName || "encrypted session";
+    ui.meAvatar.textContent = initials(state.account?.username || state.deviceName);
     ui.meAvatar.style.setProperty("--hue", hueOf(state.deviceId));
 
     if (!state.rooms.some((r) => r.id === state.currentRoom)) {
       state.currentRoom = state.rooms[0]?.id || "general";
     }
     renderRooms();
+    renderSavedHosts();
     updateHeader();
     renderMessages();
     setOnline(true);
     pollLoop();
+    if (!state.callSignalTimer) state.callSignalTimer = setInterval(pollCallSignals, 1800);
     setTimeout(() => ui.input.focus(), 120);
   }
 
@@ -689,28 +1005,59 @@
 
   /* ------------------------------------------------------------------- rooms */
   function renderRooms() {
-    const signature =
-      state.rooms.map((room) => `${room.id}:${room.name}:${room.description || ""}`).join("|") +
-      `|${state.currentRoom}|` +
-      Array.from(state.unread.entries())
-        .map(([id, count]) => `${id}=${count}`)
-        .join(",");
+    const signature = state.rooms.map((room) => `${room.id}:${room.name}:${room.description || ""}:${room.category || ""}:${room.kind || "text"}`).join("|") +
+      "|" + state.servers.map((server) => `${server.id}:${server.name}:${server.role}`).join("|") +
+      `|${state.activeServerId}|${state.currentRoom}|` +
+      Array.from(state.unread.entries()).map(([id, count]) => `${id}=${count}`).join(",");
     if (signature === state.roomSignature) return;
     state.roomSignature = signature;
 
-    const fragment = document.createDocumentFragment();
-    for (const room of state.rooms) {
-      const button = el("button", "room-btn" + (room.id === state.currentRoom ? " active" : ""));
-      button.type = "button";
-      button.append(el("span", "hash", "#"), el("span", "name", room.name));
-      const unread = state.unread.get(room.id) || 0;
-      if (unread > 0 && room.id !== state.currentRoom) {
-        button.append(el("span", "unread", unread > 99 ? "99+" : String(unread)));
-      }
-      button.addEventListener("click", () => selectRoom(room.id));
-      fragment.append(button);
+    ui.serverSelect.replaceChildren();
+    for (const server of state.servers) {
+      const option = el("option", "", server.name);
+      option.value = server.id;
+      ui.serverSelect.append(option);
     }
-    ui.roomList.replaceChildren(fragment);
+    ui.serverSelect.disabled = state.servers.length === 0;
+    if (state.activeServerId) ui.serverSelect.value = state.activeServerId;
+    const channelFragment = document.createDocumentFragment();
+    const dmFragment = document.createDocumentFragment();
+    const channels = state.rooms.filter((room) => room.kind !== "dm" && room.server_id === state.activeServerId);
+    const dms = state.rooms.filter((room) => room.kind === "dm");
+    const groupedChannels = new Map();
+    for (const room of channels) {
+      const category = room.category || "";
+      if (!groupedChannels.has(category)) groupedChannels.set(category, []);
+      groupedChannels.get(category).push(room);
+    }
+    for (const [category, categoryRooms] of groupedChannels) {
+      if (category) channelFragment.append(el("div", "channel-category", category.toUpperCase()));
+      for (const room of categoryRooms) {
+        const button = el("button", "room-btn" + (room.id === state.currentRoom ? " active" : ""));
+        button.type = "button";
+        button.append(el("span", "hash", "#"), el("span", "name", room.name));
+        const unread = state.unread.get(room.id) || 0;
+        if (unread > 0 && room.id !== state.currentRoom) button.append(el("span", "unread", unread > 99 ? "99+" : String(unread)));
+        button.addEventListener("click", () => selectRoom(room.id));
+        channelFragment.append(button);
+        if (room.name !== "general" && ["owner", "admin"].includes(state.servers.find((server) => server.id === state.activeServerId)?.role)) {
+          const manage = el("button", "room-manage", "···");
+          manage.type = "button"; manage.title = `Manage #${room.name}`;
+          manage.addEventListener("click", (event) => { event.stopPropagation(); manageRoom(room); });
+          channelFragment.append(manage);
+        }
+      }
+    }
+    for (const room of dms) {
+      const button = el("button", "room-btn" + (room.id === state.currentRoom ? " active" : ""));
+      button.type = "button"; button.append(el("span", "hash", "@"), el("span", "name", room.name));
+      const unread = state.unread.get(room.id) || 0;
+      if (unread > 0 && room.id !== state.currentRoom) button.append(el("span", "unread", unread > 99 ? "99+" : String(unread)));
+      button.addEventListener("click", () => selectRoom(room.id));
+      dmFragment.append(button);
+    }
+    ui.roomList.replaceChildren(channelFragment);
+    ui.dmList.replaceChildren(dmFragment);
     updateTitle();
   }
 
@@ -720,6 +1067,7 @@
   }
 
   function selectRoom(roomId) {
+    sendTyping(false);
     if (state.currentRoom === roomId) {
       ui.chatView.classList.remove("rail-open");
       return;
@@ -744,11 +1092,13 @@
 
   function updateHeader() {
     const room = currentRoom();
-    ui.roomTitle.textContent = `# ${room.name}`;
+    const isDm = room.kind === "dm";
+    const server = state.servers.find((item) => item.id === room.server_id);
+    ui.roomTitle.textContent = `${isDm ? "@" : "#"} ${room.name || "general"}`;
     const count = state.devices.length || 1;
-    const description = room.description ? `${room.description} · ` : "";
-    ui.roomMeta.textContent = `${description}${count} device${count === 1 ? "" : "s"} · end-to-end encrypted`;
-    ui.input.placeholder = `Message #${room.name}`;
+    const description = isDm ? "Direct message" : (server ? server.name : (room.description || "Server channel"));
+    ui.roomMeta.textContent = `${description} · ${count} device${count === 1 ? "" : "s"} · end-to-end encrypted`;
+    ui.input.placeholder = `Message ${isDm ? "@" : "#"}${room.name || "general"}`;
   }
 
   /* ---------------------------------------------------------------- messages */
@@ -757,17 +1107,26 @@
     state.lastRendered = { day: null, device: null, at: 0 };
     state.newBelow = 0;
     ui.jumpBtn.hidden = true;
-    const list = state.messages.filter((m) => m.room_id === state.currentRoom);
-    for (const message of list) appendMessage(message, { forceScroll: false, track: false });
+    const list = state.messages.filter((m) => m.room_id === state.currentRoom &&
+      (!state.searchQuery || (m.text || "").toLocaleLowerCase().includes(state.searchQuery)));
+    for (const message of list) appendMessage(message, { forceScroll: false, track: false, updateEmpty: false });
     updateEmptyState();
     scrollToBottom(false);
   }
 
   function updateEmptyState() {
-    const list = state.messages.filter((m) => m.room_id === state.currentRoom);
+    const list = state.messages.filter((m) => m.room_id === state.currentRoom &&
+      (!state.searchQuery || (m.text || "").toLocaleLowerCase().includes(state.searchQuery)));
     const empty = list.length === 0;
     ui.emptyState.hidden = !empty;
     ui.messages.hidden = empty;
+    if (empty && state.searchQuery) {
+      ui.emptyTitle.textContent = "No matching messages";
+      ui.emptyText.textContent = "Try a different search phrase.";
+    } else if (empty) {
+      ui.emptyTitle.textContent = "Nothing here yet.";
+      ui.emptyText.textContent = "Send the first message. It is encrypted on this device before it leaves.";
+    }
   }
 
   function appendMessage(message, options = {}) {
@@ -820,6 +1179,24 @@
     if (message.failedDecrypt) {
       bubble.textContent = "⚠ This message could not be decrypted.";
       bubble.style.color = "var(--danger)";
+    } else if (typeof message.text === "string" && message.text.startsWith("__TS_ATTACHMENT_V1__:")) {
+      try {
+        const file = JSON.parse(message.text.slice("__TS_ATTACHMENT_V1__:".length));
+        const dataUrl = `data:${file.type || "application/octet-stream"};base64,${file.data}`;
+        if (String(file.type || "").startsWith("audio/")) {
+          const player = el("audio", "voice-player");
+          player.controls = true;
+          player.preload = "none";
+          player.src = dataUrl;
+          bubble.append(player);
+          bubble.append(el("div", "voice-label", file.name || "Voice message"));
+        }
+        const link = el("a", "attachment-link", `📎 Download ${file.name || "attachment"}`);
+        link.href = dataUrl;
+        link.download = file.name || "attachment";
+        link.rel = "noopener";
+        bubble.append(link);
+      } catch (_) { fillText(bubble, "Attachment could not be displayed."); }
     } else {
       fillText(bubble, message.text || "");
     }
@@ -827,13 +1204,50 @@
       bubble.title = "Not sent — tap to retry";
       bubble.addEventListener("click", () => retryMessage(message));
     }
+    if (message.reply_to_id) {
+      const replied = state.messages.find((m) => String(m.id) === String(message.reply_to_id));
+      body.append(el("div", "reply-reference", replied ? `↳ ${replied.device_name || "User"}: ${(replied.text || "Message").slice(0, 90)}` : "↳ Reply to a previous message"));
+    }
     body.append(bubble);
+
+    if (message.deleted) {
+      bubble.classList.add("deleted-bubble");
+    } else if (Number.isFinite(Number(message.id)) && !String(message.id).startsWith("tmp-")) {
+      const actions = el("div", "message-actions");
+      const actionButton = (label, title, handler) => {
+        const button = el("button", "message-action", label);
+        button.type = "button";
+        button.title = title;
+        button.addEventListener("click", handler);
+        actions.append(button);
+      };
+      actionButton("↩", "Reply", () => {
+        state.replyTo = message.id;
+        ui.input.placeholder = `Reply to ${message.device_name || "user"} in #${currentRoom().name || "general"}`;
+        ui.input.focus();
+      });
+      actionButton("☺", "React", () => reactToMessage(message));
+      actionButton(message.pinned ? "📌" : "⌁", message.pinned ? "Unpin message" : "Pin message", () => togglePin(message));
+      if (mine) {
+        actionButton("Edit", "Edit message", () => editMessage(message));
+        actionButton("Delete", "Delete message", () => deleteMessage(message));
+      }
+      body.append(actions);
+      if (message.reactions && message.reactions.length) {
+        const reactionBar = el("div", "reaction-bar");
+        for (const reaction of message.reactions) {
+          const chip = el("span", "reaction-chip", `${reaction.emoji} ${reaction.count}`);
+          reactionBar.append(chip);
+        }
+        body.append(reactionBar);
+      }
+    }
     row.append(body);
     ui.messages.append(row);
 
     state.lastRendered.device = message.device_id;
     state.lastRendered.at = at;
-    updateEmptyState();
+    if (options.updateEmpty !== false) updateEmptyState();
 
     if (shouldStick) {
       scrollToBottom();
@@ -843,17 +1257,100 @@
     }
   }
 
+  async function reactToMessage(message) {
+    const emoji = window.prompt("Reaction emoji (for example 👍 ❤️ 😂 🎉):", "👍");
+    if (!emoji || !emoji.trim()) return;
+    try {
+      const res = await api("/api/messages/react", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message_id: message.id, emoji: emoji.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not add reaction.");
+      message.reactions = data.reactions || [];
+      renderMessages();
+    } catch (err) {
+      toast(err.message || "Could not add reaction.", "error");
+    }
+  }
+
+  async function editMessage(message) {
+    const next = window.prompt("Edit message:", message.text || "");
+    if (next === null || next === message.text) return;
+    if (!next.trim()) { toast("Message cannot be empty.", "error"); return; }
+    try {
+      const sealed = await encryptText(next, message.room_id);
+      const res = await api("/api/messages/edit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message_id: message.id, nonce: sealed.nonce, ciphertext: sealed.ciphertext }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not edit message.");
+      message.text = next;
+      message.edited_at = new Date().toISOString();
+      renderMessages();
+      toast("Message edited.");
+    } catch (err) {
+      toast(err.message || "Could not edit message.", "error");
+    }
+  }
+
+  async function deleteMessage(message) {
+    if (!window.confirm("Delete this message for everyone?")) return;
+    try {
+      const res = await api("/api/messages/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message_id: message.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not delete message.");
+      message.deleted = true;
+      message.text = "Message deleted";
+      message.reactions = [];
+      renderMessages();
+      toast("Message deleted.");
+    } catch (err) {
+      toast(err.message || "Could not delete message.", "error");
+    }
+  }
+
+  async function togglePin(message) {
+    const pinned = !message.pinned;
+    try {
+      const res = await api("/api/messages/pin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message_id: message.id, pinned }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not update pin.");
+      message.pinned = pinned;
+      renderMessages();
+      toast(pinned ? "Message pinned." : "Message unpinned.");
+    } catch (err) {
+      toast(err.message || "Could not update pin.", "error");
+    }
+  }
+
   function fillText(node, text) {
-    const pattern = /(https?:\/\/[^\s<]+)/g;
+    const pattern = /(https?:\/\/[^\s<]+|@[A-Za-z0-9_-]{3,24})/g;
     let index = 0;
     let match;
     while ((match = pattern.exec(text)) !== null) {
       if (match.index > index) node.append(document.createTextNode(text.slice(index, match.index)));
-      const link = el("a", "", match[0]);
-      link.href = match[0];
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-      node.append(link);
+      if (match[0].startsWith("http")) {
+        const link = el("a", "", match[0]);
+        link.href = match[0];
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        node.append(link);
+      } else {
+        const isMe = state.account?.username && match[0].slice(1).toLowerCase() === state.account.username.toLowerCase();
+        node.append(el("span", isMe ? "mention mention-self" : "mention", match[0]));
+      }
       index = match.index + match[0].length;
     }
     if (index < text.length) node.append(document.createTextNode(text.slice(index)));
@@ -885,11 +1382,19 @@
   }
 
   function notifyNew(message) {
-    if (!("Notification" in window) || Notification.permission !== "granted") return;
     const room = state.rooms.find((r) => r.id === message.room_id);
+    const roomName = room ? room.name : "channel";
     try {
-      const notification = new Notification("Terminus Secrets", {
-        body: `New encrypted message in #${room ? room.name : "channel"}`,
+      // Android WebView does not consistently implement the browser Notification API.
+      // Use the native shell when present; it intentionally displays no message content.
+      if (window.TerminusNative && typeof window.TerminusNative.notifyMessage === "function") {
+        window.TerminusNative.notifyMessage(roomName);
+        return;
+      }
+      if (!("Notification" in window) || Notification.permission !== "granted") return;
+      const mentioned = state.account?.username && (message.text || "").toLowerCase().includes("@" + state.account.username.toLowerCase());
+      const notification = new Notification(mentioned ? "You were mentioned" : "Terminus Secrets", {
+        body: mentioned ? `You were mentioned in ${roomName}` : `New encrypted message in ${roomName}`,
         tag: `terminus-${message.room_id}`,
         silent: false,
       });
@@ -975,6 +1480,17 @@
   }
 
   /* ------------------------------------------------------------------- send */
+  function sendTyping(typing) {
+    if (!state.token || !state.currentRoom) return;
+    const now = Date.now();
+    if (typing && now - state.typingLastSent < 1200) return;
+    if (typing) state.typingLastSent = now;
+    api("/api/typing", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ room_id: state.currentRoom, typing: Boolean(typing) }),
+    }).catch(() => {});
+  }
+
   function autoGrow() {
     ui.input.style.height = "auto";
     ui.input.style.height = `${Math.min(ui.input.scrollHeight, 168)}px`;
@@ -983,12 +1499,17 @@
   function submitComposer() {
     const text = ui.input.value.replace(/\s+$/, "");
     if (!text.trim()) return;
+    clearTimeout(state.typingTimer);
+    sendTyping(false);
+    const replyTo = state.replyTo;
+    state.replyTo = null;
+    ui.input.placeholder = `Message #${currentRoom().name || "general"}`;
     ui.input.value = "";
     autoGrow();
-    sendText(text);
+    sendText(text, replyTo);
   }
 
-  async function sendText(text) {
+  async function sendText(text, replyToId = null) {
     if (!state.key) {
       toast("Vault is locked.", "error");
       return;
@@ -1002,6 +1523,9 @@
       device_name: state.deviceName,
       created_at: new Date().toISOString(),
       text,
+      reply_to_id: replyToId,
+      reactions: [],
+      pinned: false,
       pending: true,
       failed: false,
     };
@@ -1024,6 +1548,7 @@
           client_msg_id: message.client_msg_id,
           nonce: sealed.nonce,
           ciphertext: sealed.ciphertext,
+          reply_to_id: message.reply_to_id,
         }),
       });
       if (!res.ok) throw new Error(`send failed (${res.status})`);
@@ -1050,6 +1575,206 @@
   }
 
   /* ------------------------------------------------------------------ rooms */
+  async function refreshSync() {
+    const res = await api(`/api/sync?after=${state.lastId}&wait=0`);
+    if (!res.ok) throw new Error("Could not refresh server data.");
+    await applySync(await res.json(), { quiet: true });
+  }
+
+  async function createServer() {
+    const name = window.prompt("New server name:");
+    if (name === null || !name.trim()) return;
+    const description = window.prompt("Server description (optional):", "") || "";
+    try {
+      const res = await api("/api/servers/create", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.trim(), description }) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not create server.");
+      state.activeServerId = data.id;
+      localStorage.setItem("ts.server", data.id);
+      await refreshSync();
+      const channel = state.rooms.find((room) => room.server_id === data.id && room.kind !== "dm");
+      if (channel) selectRoom(channel.id); else renderRooms();
+      toast(`Created ${data.name}. Invite code: ${data.invite_code}`);
+      window.alert(`Server created: ${data.name}\\nInvite code (share only with people you want to join):\\n${data.invite_code}`);
+    } catch (err) { toast(err.message || "Could not create server.", "error"); }
+  }
+
+  async function joinServer() {
+    const invite_code = window.prompt("Paste the server invite code:");
+    if (invite_code === null || !invite_code.trim()) return;
+    try {
+      const res = await api("/api/servers/join", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ invite_code: invite_code.trim() }) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not join server.");
+      state.activeServerId = data.id;
+      localStorage.setItem("ts.server", data.id);
+      await refreshSync();
+      const channel = state.rooms.find((room) => room.server_id === data.id && room.kind !== "dm");
+      if (channel) selectRoom(channel.id);
+      toast(`Joined ${data.name}.`);
+    } catch (err) { toast(err.message || "Could not join server.", "error"); }
+  }
+
+  function showServerInvite() {
+    const server = state.servers.find((item) => item.id === state.activeServerId);
+    if (!server) { toast("Create or join a server first.", "error"); return; }
+    window.alert(`${server.name}\\nInvite code: ${server.invite_code || "Unavailable"}\\nShare this code only with people you want to join.`);
+  }
+
+  async function manageServer() {
+    const server = state.servers.find((item) => item.id === state.activeServerId);
+    if (!server) { toast("Create or join a server first.", "error"); return; }
+    if (server.role !== "owner") { toast("Only the server owner can edit or delete this server.", "error"); return; }
+    state.editingServerId = server.id;
+    ui.serverError.textContent = "";
+    ui.serverNameInput.value = server.name || "";
+    ui.serverDescriptionInput.value = server.description || "";
+    ui.serverDialogTitle.textContent = `Server settings · ${server.name}`;
+    ui.deleteServerBtn.disabled = server.id === "srv_default";
+    ui.deleteServerBtn.title = server.id === "srv_default" ? "The default server is protected" : "Delete server and its channels";
+    ui.serverDialog.showModal();
+    setTimeout(() => ui.serverNameInput.focus(), 40);
+  }
+
+  async function saveServerChanges(event) {
+    event.preventDefault();
+    const serverId = state.editingServerId;
+    const name = ui.serverNameInput.value.trim().replace(/\s+/g, " ");
+    const description = ui.serverDescriptionInput.value.trim().replace(/\s+/g, " ");
+    if (!serverId || !name) {
+      ui.serverError.textContent = "Enter a server name.";
+      ui.serverNameInput.focus();
+      return;
+    }
+    ui.serverError.textContent = "";
+    ui.saveServerBtn.disabled = true;
+    try {
+      const res = await api("/api/servers/manage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "rename", server_id: serverId, name, description }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not update the server.");
+      await refreshSync();
+      ui.serverDialog.close();
+      state.editingServerId = null;
+      renderRooms();
+      toast("Server settings saved.");
+    } catch (err) {
+      ui.serverError.textContent = err.message || "Could not update the server.";
+    } finally {
+      ui.saveServerBtn.disabled = false;
+    }
+  }
+
+  async function deleteSelectedServer() {
+    const server = state.servers.find((item) => item.id === state.editingServerId);
+    if (!server) { ui.serverDialog.close(); return; }
+    if (server.id === "srv_default") {
+      ui.serverError.textContent = "The default server is protected.";
+      return;
+    }
+    if (!window.confirm(`Delete "${server.name}" and all its channels and messages? This cannot be undone.`)) return;
+    ui.deleteServerBtn.disabled = true;
+    try {
+      const res = await api("/api/servers/manage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete", server_id: server.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not delete the server.");
+      await refreshSync();
+      state.messages = state.messages.filter((message) => state.rooms.some((room) => room.id === message.room_id));
+      if (!state.rooms.some((room) => room.id === state.currentRoom)) {
+        const next = state.rooms.find((room) => room.kind !== "dm" && room.server_id === state.activeServerId) || state.rooms[0];
+        state.currentRoom = next?.id || "general";
+        localStorage.setItem(LS.room, state.currentRoom);
+      }
+      state.editingServerId = null;
+      ui.serverDialog.close();
+      renderRooms();
+      updateHeader();
+      renderMessages();
+      toast(`Deleted ${server.name}.`);
+    } catch (err) {
+      ui.serverError.textContent = err.message || "Could not delete the server.";
+    } finally {
+      ui.deleteServerBtn.disabled = false;
+    }
+  }
+
+  async function manageServerRoles() {
+    const server = state.servers.find((item) => item.id === state.activeServerId);
+    if (!server) { toast("Select a server first.", "error"); return; }
+    if (server.role !== "owner") { toast("Only the server owner can manage member roles.", "error"); return; }
+    ui.roleError.textContent = "";
+    ui.roleUsername.value = "";
+    ui.roleValue.value = "admin";
+    ui.roleMemberList.replaceChildren();
+    const members = state.serverMembers.filter((member) => member.server_id === server.id);
+    for (const member of members) {
+      const item = el("li", "role-member", `${member.display_name || member.username} (@${member.username}) — ${member.role}`);
+      ui.roleMemberList.append(item);
+    }
+    if (!members.length) ui.roleMemberList.append(el("li", "role-member muted", "No member list is available yet."));
+    ui.roleDialog.showModal();
+    setTimeout(() => ui.roleUsername.focus(), 40);
+  }
+
+  async function submitServerRole(event) {
+    event.preventDefault();
+    const server = state.servers.find((item) => item.id === state.activeServerId);
+    const username = ui.roleUsername.value.trim();
+    const normalized = ui.roleValue.value;
+    ui.roleError.textContent = "";
+    if (!server || !username) {
+      ui.roleError.textContent = "Enter the unique username of a member in this server.";
+      return;
+    }
+    ui.roleSubmitBtn.disabled = true;
+    try {
+      const res = await api("/api/servers/role", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ server_id: server.id, username, role: normalized }) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not change role.");
+      ui.roleDialog.close();
+      toast(`@${username} is now ${normalized}.`);
+      await refreshSync();
+    } catch (err) {
+      ui.roleError.textContent = err.message || "Could not change role.";
+    } finally {
+      ui.roleSubmitBtn.disabled = false;
+    }
+  }
+
+  async function openDirectMessage() {
+    const username = window.prompt("Username(s) to message — separate multiple usernames with commas for a group DM:");
+    if (username === null || !username.trim()) return;
+    try {
+      const res = await api("/api/dm/open", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: username.trim() }) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not open direct message.");
+      if (!state.rooms.some((room) => room.id === data.id)) state.rooms.push(data);
+      selectRoom(data.id);
+      toast(`Direct message with ${data.name} opened.`);
+    } catch (err) { toast(err.message || "Could not open direct message.", "error"); }
+  }
+
+  async function sendAttachment() {
+    const file = ui.fileInput.files && ui.fileInput.files[0];
+    ui.fileInput.value = "";
+    if (!file) return;
+    if (file.size > 40 * 1024) { toast("For this encrypted chat build, attachments must be 40 KB or smaller.", "error"); return; }
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const data = bytesToB64(bytes);
+      const payload = "__TS_ATTACHMENT_V1__:" + JSON.stringify({ name: file.name.slice(0, 160), type: file.type || "application/octet-stream", data });
+      await sendText(payload, null);
+      toast(`Encrypted attachment sent: ${file.name}`);
+    } catch (err) { toast(err.message || "Could not attach that file.", "error"); }
+  }
+
   async function createRoom(event) {
     event.preventDefault();
     if (event.submitter && event.submitter.value === "cancel") {
@@ -1057,25 +1782,133 @@
       return;
     }
     const name = ui.roomNameInput.value.trim().replace(/\s+/g, " ");
+    const category = ui.roomCategoryInput.value.trim().replace(/\s+/g, " ");
     const description = ui.roomDescriptionInput.value.trim().replace(/\s+/g, " ");
     if (!name) {
-      ui.roomError.textContent = "Give the group a name.";
+      ui.roomError.textContent = "Give the channel a name.";
+      ui.roomNameInput.focus();
       return;
     }
     ui.roomError.textContent = "";
+    if (!state.activeServerId) {
+      ui.roomError.textContent = "Create or join a server first.";
+      return;
+    }
+    const editing = Boolean(state.editingRoomId);
     try {
-      const res = await api("/api/rooms", {
+      const endpoint = editing ? "/api/rooms/manage" : "/api/rooms";
+      const payload = editing
+        ? { action: "rename", room_id: state.editingRoomId, name, category, description }
+        : { name, description, category, server_id: state.activeServerId, private: ui.roomPrivateInput.checked };
+      const res = await api(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, description }),
+        body: JSON.stringify(payload),
       });
-      if (!res.ok) throw new Error("Could not create the group.");
-      const room = await res.json();
-      ui.roomDialog.close();
-      if (!state.rooms.some((r) => r.id === room.id)) state.rooms.push(room);
-      selectRoom(room.id);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || (editing ? "Could not update the channel." : "Could not create the channel."));
+      if (editing) {
+        state.rooms = state.rooms.map((room) => room.id === data.id ? data : room);
+        ui.roomDialog.close();
+        state.editingRoomId = null;
+        renderRooms();
+        updateHeader();
+        toast("Channel updated.");
+      } else {
+        ui.roomDialog.close();
+        ui.roomPrivateInput.checked = false;
+        if (!state.rooms.some((room) => room.id === data.id)) state.rooms.push(data);
+        selectRoom(data.id);
+      }
     } catch (err) {
-      ui.roomError.textContent = err.message;
+      ui.roomError.textContent = err.message || "Channel operation failed.";
+    }
+  }
+
+  async function manageRoom(room) {
+    ui.roomError.textContent = "";
+    state.editingRoomId = room.id;
+    ui.roomNameInput.value = room.name || "";
+    ui.roomCategoryInput.value = room.category || "";
+    ui.roomDescriptionInput.value = room.description || "";
+    ui.roomPrivateInput.checked = room.kind === "private";
+    ui.roomPrivateInput.disabled = true;
+    ui.roomDialogTitle.textContent = `Edit #${room.name}`;
+    ui.roomSubmitBtn.textContent = "Save changes";
+    ui.deleteRoomBtn.hidden = room.name.toLowerCase() === "general";
+    ui.addRoomMemberBtn.hidden = room.kind !== "private";
+    ui.roomDialog.showModal();
+    setTimeout(() => ui.roomNameInput.focus(), 40);
+  }
+
+  async function deleteEditingRoom() {
+    const room = state.rooms.find((item) => item.id === state.editingRoomId);
+    if (!room) { ui.roomDialog.close(); return; }
+    if (!window.confirm(`Delete #${room.name} and permanently remove its messages? This cannot be undone.`)) return;
+    ui.deleteRoomBtn.disabled = true;
+    try {
+      const res = await api("/api/rooms/manage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete", room_id: room.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not delete the channel.");
+      state.rooms = state.rooms.filter((item) => item.id !== room.id);
+      state.messages = state.messages.filter((item) => item.room_id !== room.id);
+      state.unread.delete(room.id);
+      if (state.currentRoom === room.id) {
+        const next = state.rooms.find((item) => item.kind !== "dm" && item.server_id === state.activeServerId) || state.rooms[0];
+        state.currentRoom = next?.id || "general";
+        localStorage.setItem(LS.room, state.currentRoom);
+      }
+      state.editingRoomId = null;
+      ui.roomDialog.close();
+      renderRooms();
+      updateHeader();
+      renderMessages();
+      toast("Channel deleted.");
+    } catch (err) {
+      ui.roomError.textContent = err.message || "Could not delete the channel.";
+    } finally {
+      ui.deleteRoomBtn.disabled = false;
+    }
+  }
+
+  async function addEditingRoomMember() {
+    const room = state.rooms.find((item) => item.id === state.editingRoomId);
+    if (!room || room.kind !== "private") return;
+    ui.roomMemberError.textContent = "";
+    ui.roomMemberUsername.value = "";
+    ui.roomMemberDialog.showModal();
+    setTimeout(() => ui.roomMemberUsername.focus(), 40);
+  }
+
+  async function submitEditingRoomMember(event) {
+    event.preventDefault();
+    const room = state.rooms.find((item) => item.id === state.editingRoomId);
+    const username = ui.roomMemberUsername.value.trim();
+    ui.roomMemberError.textContent = "";
+    if (!room || room.kind !== "private" || !username) {
+      ui.roomMemberError.textContent = "Enter the unique username of a member who already joined this server.";
+      return;
+    }
+    ui.roomMemberSubmitBtn.disabled = true;
+    try {
+      const res = await api("/api/rooms/member", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ room_id: room.id, username }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not add private-channel member.");
+      ui.roomMemberDialog.close();
+      toast(`@${username} added to private channel #${room.name}.`);
+      await refreshSync();
+    } catch (err) {
+      ui.roomMemberError.textContent = err.message || "Could not add member.";
+    } finally {
+      ui.roomMemberSubmitBtn.disabled = false;
     }
   }
 
@@ -1158,13 +1991,443 @@
     location.reload();
   }
 
+  /* -------------------------------------------------------------- saved hosts */
+  function readSavedHosts() {
+    try {
+      const saved = JSON.parse(localStorage.getItem("ts.saved-hosts") || "[]");
+      return Array.isArray(saved) ? saved.filter((item) => item && typeof item.url === "string").slice(0, 20) : [];
+    } catch (_) { return []; }
+  }
+
+  function renderSavedHosts() {
+    if (!ui.savedHostList) return;
+    state.savedHosts = readSavedHosts();
+    ui.savedHostList.replaceChildren();
+    for (const host of state.savedHosts) {
+      const button = el("button", "room-btn saved-host-btn");
+      button.type = "button";
+      button.title = host.url + " — reconnect requires your account, pairing code, and vault phrase";
+      button.append(el("span", "hash", "↗"), el("span", "name", host.name || host.url));
+      button.addEventListener("click", () => reconnectSavedHost(host));
+      ui.savedHostList.append(button);
+    }
+    if (!state.savedHosts.length) ui.savedHostList.append(el("div", "host-empty", "No saved hosts yet"));
+  }
+
+  function normalizeHostAddress(raw) {
+    let value = String(raw || "").trim();
+    if (!value) throw new Error("Enter the host IPv6 address, for example https://[2001:db8::1]:8443.");
+    if (!/^https:\/\//i.test(value)) value = "https://" + value;
+    const parsed = new URL(value);
+    if (parsed.protocol !== "https:") throw new Error("Hosts must use HTTPS.");
+    if (!parsed.port) parsed.port = "8443";
+    if (parsed.username || parsed.password || parsed.search || parsed.hash) throw new Error("Enter only the host address, without credentials or query parameters.");
+    return { url: parsed.origin.replace(/\/$/, ""), name: parsed.hostname.replace(/^\[|\]$/g, "") };
+  }
+
+  function addSavedHost() {
+    const raw = window.prompt("Host IPv6 address or HTTPS URL (example: https://[2001:db8::1]:8443):");
+    if (raw === null) return;
+    try {
+      const host = normalizeHostAddress(raw);
+      const list = readSavedHosts().filter((item) => item.url !== host.url);
+      list.unshift(host);
+      localStorage.setItem("ts.saved-hosts", JSON.stringify(list.slice(0, 20)));
+      if (window.TerminusNative && typeof window.TerminusNative.saveHosts === "function") {
+        window.TerminusNative.saveHosts(JSON.stringify(list.slice(0, 20)));
+      }
+      state.savedHosts = list.slice(0, 20);
+      renderSavedHosts();
+      toast("Saved host address. Reconnecting will require your account, pairing code, and vault phrase.");
+    } catch (err) { toast(err.message || "Could not save host.", "error"); }
+  }
+
+  function reconnectSavedHost(host) {
+    if (!window.confirm("Reconnect to " + host.url + "? You will need to sign in and enter that host’s pairing code and vault phrase. Credentials are not saved.")) return;
+    const hostsJson = JSON.stringify(readSavedHosts());
+    const query = "?tsSavedHosts=" + encodeURIComponent(hostsJson) + "&tsReconnect=1";
+    if (window.TerminusNative && typeof window.TerminusNative.switchHost === "function") {
+      window.TerminusNative.switchHost(host.url, hostsJson);
+      return;
+    }
+    if (location.hostname === "127.0.0.1" && location.port === "8756") {
+      const fingerprint = window.prompt("Enter the SHA-256 certificate fingerprint printed by the host console:");
+      if (!fingerprint) return;
+      fetch("/__trust", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: host.url, fingerprint }) })
+        .then(async (res) => { const data = await res.json().catch(() => ({})); if (!data.ok) throw new Error(data.error || "Host fingerprint was not accepted."); location.href = "/app/" + query; })
+        .catch((err) => toast(err.message || "Could not switch host.", "error"));
+      return;
+    }
+    location.href = host.url + "/app/" + query;
+  }
+
+  async function restoreSavedHostsFromUrl() {
+    const params = new URLSearchParams(location.search);
+    const encoded = params.get("tsSavedHosts");
+    if (encoded) {
+      try {
+        const incoming = JSON.parse(encoded);
+        const merged = new Map(readSavedHosts().map((item) => [item.url, item]));
+        if (Array.isArray(incoming)) incoming.slice(0, 20).forEach((item) => {
+          if (item && typeof item.url === "string" && item.url.startsWith("https://")) merged.set(item.url, item);
+        });
+        state.savedHosts = Array.from(merged.values()).slice(0, 20);
+        localStorage.setItem("ts.saved-hosts", JSON.stringify(state.savedHosts));
+      } catch (_) {}
+    }
+    if (params.get("tsReconnect") === "1") {
+      if (state.token && state.deviceId && state.accountToken) {
+        try {
+          await fetch("/api/devices/revoke", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": "Bearer " + state.token, "X-Account-Token": state.accountToken },
+            body: JSON.stringify({ device_id: state.deviceId }),
+          });
+        } catch (_) {}
+      }
+      localStorage.removeItem(LS.token);
+      localStorage.removeItem(LS.device);
+      localStorage.removeItem(LS.accountToken);
+      localStorage.removeItem(LS.account);
+      state.token = "";
+      state.deviceId = "";
+      state.accountToken = "";
+      state.account = null;
+    }
+    if (encoded || params.has("tsReconnect")) history.replaceState(null, "", location.pathname);
+  }
+
+  /* -------------------------------------------------------------- calls/media */
+  function requireUnlockedSession() {
+    if (!state.key || !state.token || !state.accountToken) {
+      toast("Sign in, pair this device, and unlock the vault first.", "error");
+      return false;
+    }
+    return true;
+  }
+
+  function requireDirectMessage() {
+    const room = currentRoom();
+    if (!room || room.kind !== "dm") {
+      toast("Voice and video calls are available in direct messages.", "error");
+      return false;
+    }
+    return requireUnlockedSession();
+  }
+
+  async function sendCallSignal(roomId, kind, data = {}) {
+    const sealed = await encryptText(JSON.stringify(data), roomId);
+    const res = await api("/api/calls/signal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ room_id: roomId, kind, payload: sealed }),
+    });
+    const result = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(result.error || "Could not send call signal.");
+  }
+
+  async function pollCallSignals() {
+    if (state.callSignalBusy || !state.token || !state.accountToken || !state.key || state.stopped) return;
+    if (!state.call && !state.rooms.some((item) => item.kind === "dm")) return;
+    state.callSignalBusy = true;
+    try {
+      const cursor = state.callSignalCursor._all || 0;
+      const res = await api(`/api/calls/poll?after=${cursor}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      for (const signal of (data.signals || [])) {
+        state.callSignalCursor._all = Math.max(state.callSignalCursor._all || 0, Number(signal.id) || 0);
+        const roomId = signal.room_id;
+        if (!roomId || Date.now() - new Date(signal.created_at).getTime() > 120000) continue;
+        let detail;
+        try {
+          const plain = await decryptMessage({ room_id: roomId, nonce: signal.payload?.nonce, ciphertext: signal.payload?.ciphertext });
+          if (!plain) continue;
+          detail = JSON.parse(plain);
+        } catch (_) { continue; }
+        await handleCallSignal(roomId, signal.kind, detail);
+      }
+    } catch (_) {
+      // Calls reconnect independently from chat history.
+    } finally {
+      state.callSignalBusy = false;
+    }
+  }
+
+  async function getCallMedia(mode) {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error("This device/browser does not support microphone access.");
+    }
+    const constraints = {
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      video: mode === "video" ? { width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 20, max: 24 } } : false,
+    };
+    return navigator.mediaDevices.getUserMedia(constraints);
+  }
+
+  function makePeerConnection(roomId) {
+    const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+    const call = state.call;
+    call.pc = pc;
+    pc.onicecandidate = (event) => {
+      if (event.candidate && state.call === call) {
+        sendCallSignal(roomId, "ice", { candidate: event.candidate.toJSON() }).catch(() => {});
+      }
+    };
+    pc.ontrack = (event) => {
+      const stream = event.streams?.[0];
+      if (!stream) return;
+      if (event.track.kind === "video") {
+        ui.remoteCallVideo.srcObject = stream;
+        ui.remoteCallVideo.hidden = false;
+      } else {
+        ui.remoteCallAudio.srcObject = stream;
+      }
+      ui.callStatus.textContent = "Connected";
+    };
+    pc.onconnectionstatechange = () => {
+      if (state.call !== call) return;
+      if (pc.connectionState === "connected") ui.callStatus.textContent = "Connected";
+      if (["failed", "disconnected"].includes(pc.connectionState)) {
+        ui.callStatus.textContent = "Connection unstable — this network may block direct peer connectivity.";
+      }
+    };
+    return pc;
+  }
+
+  async function startCall(mode) {
+    if (!requireDirectMessage()) return;
+    if (state.call) { toast("A call is already active.", "error"); return; }
+    const room = currentRoom();
+    try {
+      const stream = await getCallMedia(mode);
+      state.call = { roomId: room.id, mode, pc: null, localStream: stream, shareStream: null, pendingIce: [], remoteDescriptionSet: false };
+      ui.callPanel.hidden = false;
+      ui.callTitle.textContent = mode === "video" ? "Video call" : "Voice call";
+      ui.callStatus.textContent = "Calling…";
+      ui.localCallVideo.srcObject = stream;
+      ui.localCallVideo.hidden = mode !== "video";
+      ui.remoteCallVideo.hidden = mode !== "video";
+      const pc = makePeerConnection(room.id);
+      if (mode === "audio") pc.addTransceiver("video", { direction: "sendrecv" });
+      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      await sendCallSignal(room.id, "offer", { description: { type: pc.localDescription.type, sdp: pc.localDescription.sdp }, mode });
+      ui.screenCallBtn.disabled = false;
+      ui.shareCallBtn.disabled = false;
+    } catch (err) {
+      await endCall(false);
+      toast(err.message || "Could not start call. Check microphone/camera permissions.", "error");
+    }
+  }
+
+  async function handleCallSignal(roomId, kind, detail) {
+    if (kind === "offer") {
+      if (state.call) {
+        await sendCallSignal(roomId, "busy", {});
+        return;
+      }
+      if (!window.confirm("Incoming " + (detail.mode === "video" ? "video" : "voice") + " call. Answer?")) {
+        await sendCallSignal(roomId, "reject", {});
+        return;
+      }
+      try {
+        const mode = detail.mode === "video" ? "video" : "audio";
+        const stream = await getCallMedia(mode);
+        state.call = { roomId, mode, pc: null, localStream: stream, shareStream: null, pendingIce: [], remoteDescriptionSet: false };
+        ui.callPanel.hidden = false;
+        ui.callTitle.textContent = mode === "video" ? "Video call" : "Voice call";
+        ui.callStatus.textContent = "Answering…";
+        ui.localCallVideo.srcObject = stream;
+        ui.localCallVideo.hidden = mode !== "video";
+        ui.remoteCallVideo.hidden = mode !== "video";
+        const pc = makePeerConnection(roomId);
+        if (mode === "audio") pc.addTransceiver("video", { direction: "sendrecv" });
+        stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+        await pc.setRemoteDescription(detail.description);
+        state.call.remoteDescriptionSet = true;
+        for (const candidate of state.call.pendingIce.splice(0)) await pc.addIceCandidate(candidate);
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        await sendCallSignal(roomId, "answer", { description: { type: pc.localDescription.type, sdp: pc.localDescription.sdp } });
+        ui.screenCallBtn.disabled = false;
+        ui.shareCallBtn.disabled = false;
+      } catch (err) {
+        await endCall(false);
+        toast(err.message || "Could not answer call.", "error");
+      }
+      return;
+    }
+    if (!state.call || state.call.roomId !== roomId) return;
+    try {
+      if (kind === "answer" && detail.description && state.call.pc) {
+        await state.call.pc.setRemoteDescription(detail.description);
+        state.call.remoteDescriptionSet = true;
+        for (const candidate of state.call.pendingIce.splice(0)) await state.call.pc.addIceCandidate(candidate);
+        ui.callStatus.textContent = "Connecting…";
+      } else if (kind === "ice" && detail.candidate && state.call.pc) {
+        if (state.call.remoteDescriptionSet) await state.call.pc.addIceCandidate(detail.candidate);
+        else state.call.pendingIce.push(detail.candidate);
+      } else if (kind === "hangup" || kind === "reject" || kind === "busy") {
+        const message = kind === "busy" ? "The other person is already in a call." : kind === "reject" ? "Call declined." : "The other person ended the call.";
+        await endCall(false);
+        toast(message);
+      }
+    } catch (_) {}
+  }
+
+  async function toggleScreenShare() {
+    if (!state.call?.pc) { toast("Start a call first.", "error"); return; }
+    if (state.call.shareStream) {
+      const cameraTrack = state.call.localStream.getVideoTracks()[0];
+      const sender = state.call.pc.getSenders().find((item) => item.track?.kind === "video")
+        || state.call.pc.getTransceivers().find((item) => item.receiver.track.kind === "video")?.sender;
+      if (sender) await sender.replaceTrack(cameraTrack || null);
+      state.call.shareStream.getTracks().forEach((track) => track.stop());
+      state.call.shareStream = null;
+      ui.localCallVideo.srcObject = state.call.localStream;
+      ui.shareCallBtn.textContent = "Share screen";
+      toast("Screen sharing stopped.");
+      return;
+    }
+    if (!navigator.mediaDevices?.getDisplayMedia) {
+      toast("Screen sharing is not supported by this browser/device.", "error");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 15 }, audio: false });
+      const track = stream.getVideoTracks()[0];
+      const sender = state.call.pc.getSenders().find((item) => item.track?.kind === "video")
+        || state.call.pc.getTransceivers().find((item) => item.receiver.track.kind === "video")?.sender;
+      if (sender) await sender.replaceTrack(track);
+      else state.call.pc.addTrack(track, stream);
+      state.call.shareStream = stream;
+      ui.localCallVideo.srcObject = stream;
+      ui.localCallVideo.hidden = false;
+      ui.shareCallBtn.textContent = "Stop sharing";
+      track.onended = () => { if (state.call?.shareStream) toggleScreenShare(); };
+    } catch (err) {
+      toast(err.message || "Screen sharing was cancelled or blocked.", "error");
+    }
+  }
+
+  function toggleCallMute() {
+    const tracks = state.call?.localStream?.getAudioTracks() || [];
+    if (!tracks.length) return;
+    const next = !tracks[0].enabled;
+    tracks.forEach((track) => { track.enabled = next; });
+    ui.muteCallBtn.textContent = next ? "Mute mic" : "Unmute mic";
+  }
+
+  function toggleCallCamera() {
+    const tracks = state.call?.localStream?.getVideoTracks() || [];
+    if (!tracks.length) { toast("This call has no camera track.", "error"); return; }
+    const next = !tracks[0].enabled;
+    tracks.forEach((track) => { track.enabled = next; });
+    ui.cameraCallBtn.textContent = next ? "Camera off" : "Camera on";
+  }
+
+  async function endCall(notifyPeer = false) {
+    const call = state.call;
+    state.call = null;
+    if (call) {
+      if (notifyPeer) sendCallSignal(call.roomId, "hangup", {}).catch(() => {});
+      try { call.pc?.close(); } catch (_) {}
+      for (const stream of [call.localStream, call.shareStream]) stream?.getTracks().forEach((track) => track.stop());
+    }
+    ui.callPanel.hidden = true;
+    ui.localCallVideo.srcObject = null;
+    ui.remoteCallVideo.srcObject = null;
+    ui.remoteCallAudio.srcObject = null;
+    ui.screenCallBtn.disabled = true;
+    ui.shareCallBtn.textContent = "Share screen";
+    ui.muteCallBtn.textContent = "Mute mic";
+    ui.cameraCallBtn.textContent = "Camera off";
+  }
+
+  async function toggleVoiceRecording() {
+    if (!requireUnlockedSession()) return;
+    if (state.voiceRecorder && state.voiceRecorder.state === "recording") {
+      state.voiceRecorder.stop();
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+      toast("Voice recording is not supported by this browser/device.", "error");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+      const mime = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus"].find((type) => MediaRecorder.isTypeSupported(type)) || "";
+      const recorder = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 24000 } : { audioBitsPerSecond: 24000 });
+      state.voiceRecorder = recorder;
+      state.voiceChunks = [];
+      recorder.ondataavailable = (event) => { if (event.data?.size) state.voiceChunks.push(event.data); };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((track) => track.stop());
+        ui.voiceMessageBtn.classList.remove("recording");
+        ui.voiceMessageBtn.textContent = "🎙";
+        ui.voiceMessageBtn.title = "Record voice message (max 10 seconds)";
+        clearTimeout(state.voiceStopTimer);
+        const blob = new Blob(state.voiceChunks, { type: recorder.mimeType || "audio/webm" });
+        state.voiceRecorder = null;
+        state.voiceChunks = [];
+        if (!blob.size) return;
+        if (blob.size > 43000) { toast("Voice note is too large; record a shorter one.", "error"); return; }
+        const data = bytesToB64(new Uint8Array(await blob.arrayBuffer()));
+        const ext = blob.type.includes("ogg") ? "ogg" : "webm";
+        await sendText("__TS_ATTACHMENT_V1__:" + JSON.stringify({ name: "voice-message." + ext, type: blob.type || "audio/webm", data }), null);
+      };
+      recorder.start(250);
+      ui.voiceMessageBtn.classList.add("recording");
+      ui.voiceMessageBtn.textContent = "■";
+      ui.voiceMessageBtn.title = "Stop recording voice message";
+      toast("Recording voice message… tap ■ to send.");
+      state.voiceStopTimer = setTimeout(() => {
+        if (state.voiceRecorder?.state === "recording") state.voiceRecorder.stop();
+      }, 10000);
+    } catch (err) {
+      toast(err.message || "Microphone permission was denied.", "error");
+    }
+  }
+
+  async function loadServerFeatures() {
+    try {
+      const response = await fetch("/api/config", { cache: "no-store" });
+      if (!response.ok) return;
+      const config = await response.json();
+      state.features = { ...state.features, ...(config.features || {}) };
+      const controls = [
+        [ui.attachBtn, state.features.photos],
+        [ui.fileInput, state.features.photos],
+        [ui.voiceMessageBtn, state.features.voice_messages],
+        [ui.audioCallBtn, state.features.voice_calls],
+        [ui.videoCallBtn, state.features.video_calls],
+        [ui.screenCallBtn, state.features.screen_sharing],
+        [ui.shareCallBtn, state.features.screen_sharing],
+      ];
+      for (const [control, enabled] of controls) if (control) control.hidden = !enabled;
+    } catch (_) {
+      // Older hosts remain compatible: leave the legacy controls visible.
+    }
+  }
+
   /* ------------------------------------------------------------------- init */
   async function init() {
+    await restoreSavedHostsFromUrl();
     cacheUi();
     bindEvents();
+    if (ui.accountDisplayName) ui.accountDisplayName.closest(".field").hidden = true;
+    await loadServerFeatures();
     ui.deviceInput.value = state.deviceName;
+    ui.accountTitle = $("#accountTitle");
+    ui.accountPanel.hidden = Boolean(state.accountToken);
+    ui.connectForm.hidden = !state.accountToken;
+    if (state.account) {
+      ui.accountUsername.value = state.account.username || "";
+    }
     const reachable = await checkHost();
-    if (state.token) setMode("unlock");
+    if (state.accountToken && state.token) setMode("unlock");
     else setMode("pair");
     if (!reachable) {
       ui.connectError.textContent =
