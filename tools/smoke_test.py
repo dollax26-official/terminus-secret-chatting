@@ -96,6 +96,13 @@ def main():
         ACCOUNT_TOKEN = account["account_token"]
         assert account["account"]["username"] == "smoke_tester"
 
+        try:
+            request("/api/accounts/register", method="POST",
+                    payload={"username": "SMOKE_TESTER", "password": "duplicate-name-password-123"})
+            raise AssertionError("duplicate username was accepted")
+        except urllib.error.HTTPError as exc:
+            assert exc.code == 409, exc.code
+
         code = (DATA / "pairing-code.txt").read_text().strip()
         assert len(code) == 9
 
@@ -190,7 +197,22 @@ def main():
         )
         other_device = json.loads(other_device_body)
 
+        # Authenticated WebRTC signaling can only be sent between users who
+        # share a server; recipients receive the signal through their own session.
         ACCOUNT_TOKEN = account1_token
+        _, _, signal_body = request(
+            "/api/calls/signal", method="POST", token=device_a["token"],
+            payload={"to_username": "smoke_other", "call_id": "call-smoke-1",
+                     "kind": "offer", "payload": {"mode": "audio", "description": {"type": "offer", "sdp": "test-sdp"}}},
+        )
+        assert json.loads(signal_body)["ok"] is True
+        ACCOUNT_TOKEN = other_account["account_token"]
+        call_signals = get_json("/api/calls/signals?after=0", token=other_device["token"])["signals"]
+        assert len(call_signals) == 1
+        assert call_signals[0]["from_username"] == "smoke_tester"
+        assert call_signals[0]["kind"] == "offer"
+        ACCOUNT_TOKEN = account1_token
+
         _, _, dm_body = request(
             "/api/dm/open", method="POST", token=device_a["token"],
             payload={"username": "smoke_other"},
