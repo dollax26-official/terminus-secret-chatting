@@ -624,10 +624,16 @@ class Handler(BaseHTTPRequestHandler):
                         cursor_id = max([after] + [row["id"] for row in rows])
                         more = conn.execute(
                             """SELECT 1 FROM messages m WHERE m.id > ? AND m.room_id IN (
-                                   SELECT r.id FROM rooms r JOIN server_members sm ON sm.server_id=r.server_id
-                                   WHERE sm.account_id=? AND r.server_id=?
+                                   SELECT r.id FROM rooms r
+                                   WHERE r.server_id=? AND (
+                                     (r.kind='channel' AND EXISTS (
+                                       SELECT 1 FROM server_members sm WHERE sm.server_id=r.server_id AND sm.account_id=?
+                                     )) OR (r.kind='dm' AND EXISTS (
+                                       SELECT 1 FROM room_members rm WHERE rm.room_id=r.id AND rm.account_id=?
+                                     ))
+                                   )
                                ) LIMIT 1""",
-                            (cursor_id, device["account_id"], server_id),
+                            (cursor_id, server_id, device["account_id"], device["account_id"]),
                         ).fetchone()
                         payload = {
                             "messages": [
@@ -1251,11 +1257,12 @@ class Handler(BaseHTTPRequestHandler):
             if missing:
                 self._error(404, "These usernames are not members of this server: " + ", ".join(missing))
                 return
-            participants = [(account_id, None)] + [(row["id"], row["username"]) for row in targets]
+            targets = [row for row in targets if row["id"] != account_id]
+            if not targets:
+                self._error(400, "choose at least one other member")
+                return
             dm_id = "dm_" + secrets.token_hex(8)
             display_names = [row["username"] for row in targets]
-            with db() as unused:
-                pass
             conn.execute(
                 "INSERT INTO rooms(id,name,description,created_at,server_id,kind) VALUES(?,?,?,?,?,'dm')",
                 (dm_id, ", ".join(display_names), "Direct message", now_iso(), server_id),
