@@ -45,6 +45,7 @@
     replyTo: null,
     currentRoom: localStorage.getItem(LS.room) || "general",
     editingRoomId: null,
+    editingServerId: null,
     unread: new Map(),
     lastRendered: { day: null, device: null, at: 0 },
     polling: false,
@@ -346,6 +347,14 @@
     ui.copyFingerprintBtn = $("#copyFingerprintBtn");
     ui.notifyBtn = $("#notifyBtn");
     ui.changeHostBtn = $("#changeHostBtn");
+    ui.serverDialog = $("#serverDialog");
+    ui.serverForm = $("#serverForm");
+    ui.serverDialogTitle = $("#serverDialogTitle");
+    ui.serverNameInput = $("#serverNameInput");
+    ui.serverDescriptionInput = $("#serverDescriptionInput");
+    ui.serverError = $("#serverError");
+    ui.saveServerBtn = $("#saveServerBtn");
+    ui.deleteServerBtn = $("#deleteServerBtn");
     ui.roomDialog = $("#roomDialog");
     ui.roomForm = $("#roomForm");
     ui.roomDialogTitle = $("#roomDialogTitle");
@@ -473,6 +482,10 @@
     $("#joinServerBtn").addEventListener("click", joinServer);
     $("#inviteServerBtn").addEventListener("click", showServerInvite);
     $("#manageServerBtn").addEventListener("click", manageServer);
+    ui.serverForm.addEventListener("submit", saveServerChanges);
+    ui.deleteServerBtn.addEventListener("click", deleteSelectedServer);
+    $("#closeServerDialogBtn").addEventListener("click", () => ui.serverDialog.close());
+    $("#cancelServerDialogBtn").addEventListener("click", () => ui.serverDialog.close());
     $("#manageRolesBtn").addEventListener("click", manageServerRoles);
     $("#newDmBtn").addEventListener("click", openDirectMessage);
     ui.searchInput.addEventListener("input", () => {
@@ -1590,41 +1603,84 @@
     const server = state.servers.find((item) => item.id === state.activeServerId);
     if (!server) { toast("Create or join a server first.", "error"); return; }
     if (server.role !== "owner") { toast("Only the server owner can edit or delete this server.", "error"); return; }
-    const choice = window.prompt(`Manage "${server.name}": type rename or delete`);
-    if (choice === null) return;
-    const action = choice.trim().toLowerCase();
-    if (action !== "rename" && action !== "delete") { toast("Choose rename or delete.", "error"); return; }
-    const payload = { action, server_id: server.id };
-    if (action === "rename") {
-      payload.name = window.prompt("Server name:", server.name);
-      if (payload.name === null) return;
-      payload.name = payload.name.trim().replace(/\\s+/g, " ");
-      if (!payload.name) { toast("A server name is required.", "error"); return; }
-      payload.description = window.prompt("Server description:", server.description || "");
-      if (payload.description === null) return;
-    } else if (!window.confirm(`Delete "${server.name}" and all of its channels and messages? This cannot be undone.`)) {
+    state.editingServerId = server.id;
+    ui.serverError.textContent = "";
+    ui.serverNameInput.value = server.name || "";
+    ui.serverDescriptionInput.value = server.description || "";
+    ui.serverDialogTitle.textContent = `Server settings · ${server.name}`;
+    ui.deleteServerBtn.disabled = server.id === "srv_default";
+    ui.deleteServerBtn.title = server.id === "srv_default" ? "The default server is protected" : "Delete server and its channels";
+    ui.serverDialog.showModal();
+    setTimeout(() => ui.serverNameInput.focus(), 40);
+  }
+
+  async function saveServerChanges(event) {
+    event.preventDefault();
+    const serverId = state.editingServerId;
+    const name = ui.serverNameInput.value.trim().replace(/\s+/g, " ");
+    const description = ui.serverDescriptionInput.value.trim().replace(/\s+/g, " ");
+    if (!serverId || !name) {
+      ui.serverError.textContent = "Enter a server name.";
+      ui.serverNameInput.focus();
       return;
     }
+    ui.serverError.textContent = "";
+    ui.saveServerBtn.disabled = true;
     try {
       const res = await api("/api/servers/manage", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "rename", server_id: serverId, name, description }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Server management failed.");
+      if (!res.ok) throw new Error(data.error || "Could not update the server.");
       await refreshSync();
-      if (action === "delete") {
-        state.messages = state.messages.filter((message) => state.rooms.some((room) => room.id === message.room_id));
-        if (!state.rooms.some((room) => room.id === state.currentRoom)) {
-          const next = state.rooms.find((room) => room.kind !== "dm" && room.server_id === state.activeServerId) || state.rooms[0];
-          state.currentRoom = next?.id || "general";
-          localStorage.setItem(LS.room, state.currentRoom);
-        }
-        renderRooms(); updateHeader(); renderMessages();
-        toast(`Deleted ${server.name}.`);
-      } else {
-        toast("Server updated.");
+      ui.serverDialog.close();
+      state.editingServerId = null;
+      renderRooms();
+      toast("Server settings saved.");
+    } catch (err) {
+      ui.serverError.textContent = err.message || "Could not update the server.";
+    } finally {
+      ui.saveServerBtn.disabled = false;
+    }
+  }
+
+  async function deleteSelectedServer() {
+    const server = state.servers.find((item) => item.id === state.editingServerId);
+    if (!server) { ui.serverDialog.close(); return; }
+    if (server.id === "srv_default") {
+      ui.serverError.textContent = "The default server is protected.";
+      return;
+    }
+    if (!window.confirm(`Delete "${server.name}" and all its channels and messages? This cannot be undone.`)) return;
+    ui.deleteServerBtn.disabled = true;
+    try {
+      const res = await api("/api/servers/manage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete", server_id: server.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not delete the server.");
+      await refreshSync();
+      state.messages = state.messages.filter((message) => state.rooms.some((room) => room.id === message.room_id));
+      if (!state.rooms.some((room) => room.id === state.currentRoom)) {
+        const next = state.rooms.find((room) => room.kind !== "dm" && room.server_id === state.activeServerId) || state.rooms[0];
+        state.currentRoom = next?.id || "general";
+        localStorage.setItem(LS.room, state.currentRoom);
       }
-    } catch (err) { toast(err.message || "Server management failed.", "error"); }
+      state.editingServerId = null;
+      ui.serverDialog.close();
+      renderRooms();
+      updateHeader();
+      renderMessages();
+      toast(`Deleted ${server.name}.`);
+    } catch (err) {
+      ui.serverError.textContent = err.message || "Could not delete the server.";
+    } finally {
+      ui.deleteServerBtn.disabled = false;
+    }
   }
 
   async function manageServerRoles() {
