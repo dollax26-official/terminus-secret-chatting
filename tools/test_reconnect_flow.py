@@ -44,3 +44,8 @@ assert "async function copyTextToClipboard" in APP
 assert "if (!copied) toast(" in APP
 
 print("Reconnect, credential copy, Android notification permission, clipboard fallback, and resource-estimate source checks passed.")
+
+assert '#chatView.app {\n  width: 100%;\n  max-width: 100vw;\n  grid-template-columns: minmax(0, 1fr) 296px;' in (ROOT / "server" / "web" / "styles.css").read_text(encoding="utf-8")
+assert '#chatView.app > .rail {\n  grid-column: 2;' in (ROOT / "server" / "web" / "styles.css").read_text(encoding="utf-8")
+assert 'state.authMethod = "code";' in APP
+assert 'setAuthMethod("code");' in APP
