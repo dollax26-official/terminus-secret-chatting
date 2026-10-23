@@ -100,6 +100,7 @@ public class MainActivity extends Activity {
     private String pin;
     private PermissionRequest pendingPermissionRequest;
     private String[] pendingMediaResources = new String[0];
+    private String pendingNotificationRoom = "";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -468,29 +469,34 @@ public class MainActivity extends Activity {
                 if (Build.VERSION.SDK_INT >= 33
                         && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
                         != PackageManager.PERMISSION_GRANTED) {
+                    pendingNotificationRoom = safeRoom;
                     requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},
                             NOTIFICATION_PERMISSION_REQUEST);
                     return;
                 }
-                Intent intent = new Intent(MainActivity.this, MainActivity.class);
-                intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-                PendingIntent pending = PendingIntent.getActivity(
-                        MainActivity.this, 0, intent,
-                        PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-                Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
-                        ? new Notification.Builder(MainActivity.this, NOTIFICATION_CHANNEL)
-                        : new Notification.Builder(MainActivity.this);
-                builder.setSmallIcon(android.R.drawable.ic_dialog_info)
-                        .setContentTitle("Terminus Secrets")
-                        .setContentText("New message in #" + safeRoom)
-                        .setContentIntent(pending)
-                        .setAutoCancel(true)
-                        .setCategory(Notification.CATEGORY_MESSAGE);
-                NotificationManager manager = (NotificationManager)
-                        getSystemService(NOTIFICATION_SERVICE);
-                if (manager != null) manager.notify((safeRoom.hashCode() & 0x7fffffff), builder.build());
+                showMessageNotification(safeRoom);
             });
         }
+    }
+
+    private void showMessageNotification(String safeRoom) {
+        Intent intent = new Intent(MainActivity.this, MainActivity.class);
+        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        PendingIntent pending = PendingIntent.getActivity(
+                MainActivity.this, 0, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                ? new Notification.Builder(MainActivity.this, NOTIFICATION_CHANNEL)
+                : new Notification.Builder(MainActivity.this);
+        builder.setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentTitle("Terminus Secrets")
+                .setContentText("New message in #" + safeRoom)
+                .setContentIntent(pending)
+                .setAutoCancel(true)
+                .setCategory(Notification.CATEGORY_MESSAGE);
+        NotificationManager manager = (NotificationManager)
+                getSystemService(NOTIFICATION_SERVICE);
+        if (manager != null) manager.notify((safeRoom.hashCode() & 0x7fffffff), builder.build());
     }
 
     private void confirmChangeServer() {
@@ -530,6 +536,12 @@ public class MainActivity extends Activity {
             for (int result : grantResults) granted &= result == PackageManager.PERMISSION_GRANTED;
             if (granted) request.grant(allowedResources);
             else request.deny();
+        } else if (requestCode == NOTIFICATION_PERMISSION_REQUEST) {
+            boolean granted = grantResults.length > 0
+                    && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+            String room = pendingNotificationRoom;
+            pendingNotificationRoom = "";
+            if (granted && !room.isEmpty()) showMessageNotification(room);
         }
     }
 
