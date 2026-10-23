@@ -1451,26 +1451,43 @@
     ui.notifyBtn.disabled = permission === "denied";
   }
 
+  async function copyTextToClipboard(value, label = "Text") {
+    const text = String(value ?? "");
+    if (!text) {
+      toast(`Nothing to copy for ${label.toLowerCase()}.`, "error");
+      return false;
+    }
+    try {
+      if (navigator.clipboard?.writeText && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (_) {
+      // Fall through to the legacy selection path for embedded WebViews.
+    }
+    const area = document.createElement("textarea");
+    area.value = text;
+    area.setAttribute("readonly", "");
+    area.setAttribute("aria-hidden", "true");
+    area.style.position = "fixed";
+    area.style.left = "-9999px";
+    area.style.top = "0";
+    document.body.append(area);
+    area.select();
+    let copied = false;
+    try { copied = document.execCommand("copy"); } catch (_) { copied = false; }
+    area.remove();
+    if (!copied) toast(`Could not copy ${label.toLowerCase()}. Select the value and copy it manually.`, "error");
+    return copied;
+  }
+
   async function copyFingerprint() {
     const value = state.server?.fingerprint;
     if (!value) {
       toast("No fingerprint available yet.", "error");
       return;
     }
-    try {
-      await navigator.clipboard.writeText(value);
-      toast("Fingerprint copied.");
-    } catch (err) {
-      const area = document.createElement("textarea");
-      area.value = value;
-      area.style.position = "fixed";
-      area.style.opacity = "0";
-      document.body.append(area);
-      area.select();
-      document.execCommand("copy");
-      area.remove();
-      toast("Fingerprint copied.");
-    }
+    if (await copyTextToClipboard(value, "Fingerprint")) toast("Fingerprint copied.");
   }
 
   function updateMessageNode(message) {
@@ -1651,13 +1668,11 @@
       const copy = el("button", "ghost-btn compact action-copy-btn", "Copy invite code");
       copy.type = "button";
       copy.addEventListener("click", async () => {
-        try {
-          await navigator.clipboard.writeText(String(options.inviteCode || ""));
+        if (await copyTextToClipboard(options.inviteCode || "", "Invite code")) {
           toast("Invite code copied.");
-        } catch (_) {
+        } else {
           const input = ui.actionFields.querySelector('[data-action-field="invite_code"]');
           input?.focus(); input?.select();
-          toast("Select and copy the invite code manually.");
         }
       });
       ui.actionFields.append(copy);
