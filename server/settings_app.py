@@ -258,28 +258,51 @@ class HostSettingsApp:
         for child in widget.winfo_children():
             self._bind_scroll_events(child)
 
+    def _copy_to_clipboard(self, value: str, label: str) -> bool:
+        value = (value or "").strip()
+        if not value:
+            messagebox.showwarning("Unavailable", f"There is no {label.lower()} to copy yet.")
+            return False
+        # On Windows, clip.exe uses the OS clipboard directly and is more reliable
+        # than Tk's ownership-based clipboard in packaged/frozen windows.
+        try:
+            if os.name == "nt":
+                flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                result = subprocess.run(
+                    ["clip.exe"], input=value, text=True, encoding="utf-8",
+                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                    timeout=3, creationflags=flags, check=False,
+                )
+                if result.returncode == 0:
+                    self.status.set(f"{label} copied to clipboard")
+                    return True
+        except (OSError, subprocess.SubprocessError):
+            pass
+        try:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(value)
+            self.root.update_idletasks()
+            self.root.update()
+            self.status.set(f"{label} copied to clipboard")
+            return True
+        except tk.TclError as exc:
+            messagebox.showerror("Copy failed", f"Could not copy {label.lower()} to the clipboard: {exc}")
+            self.status.set(f"Copy failed: {label}")
+            return False
+
     def _copy_public_text(self, value: str) -> None:
         value = (value or "").strip()
         if not value or value in {"Checking…", "Address unavailable", "IPv6 unavailable"}:
             messagebox.showwarning("Unavailable", "There is no address to copy yet.")
             return
-        self.root.clipboard_clear()
-        self.root.clipboard_append(value)
-        self.root.update()
-        self.status.set("Address copied to clipboard")
+        self._copy_to_clipboard(value, "Address")
 
     def _copy_secret(self, value: str, label: str) -> None:
         value = (value or "").strip()
         if not value or value == "Not loaded yet":
             messagebox.showwarning("Credential unavailable", f"{label} is not available yet. Start the server first.")
             return
-        try:
-            self.root.clipboard_clear()
-            self.root.clipboard_append(value)
-            self.root.update()
-            self.status.set(f"{label} copied to clipboard")
-        except tk.TclError as exc:
-            messagebox.showerror("Copy failed", f"Could not copy {label.lower()} to the clipboard: {exc}")
+        self._copy_to_clipboard(value, label)
 
     def _update_address(self) -> None:
         custom = self.public_url.get().strip().rstrip("/")
@@ -448,39 +471,54 @@ class HostSettingsApp:
         self.status.set(f"Starting host on HTTPS port {config['port']}…")
         self.start_button.configure(state="disabled")
         self.stop_button.configure(state="normal")
-        self.root.after(1200, self._report_start)
+        self._credential_poll_attempts = 0
+        self._load_credentials()
+        self.root.after(350, self._report_start)
 
     def _report_start(self) -> None:
-        if self.process and self.process.poll() is None:
-            self._load_credentials()
-            self.status.set("Server process running · credentials shown above · diagnostics in host-errors.log")
-        else:
+        if not self.process or self.process.poll() is not None:
             self.status.set("Server exited · open server/data/host-errors.log for details")
             self.start_button.configure(state="normal")
             self.stop_button.configure(state="disabled")
+            return
+        self._load_credentials()
+        if self.vault_phrase and self.pairing_code and self.master_key:
+            self.status.set("Server running · all three credentials are ready to copy.")
+            return
+        self._credential_poll_attempts = getattr(self, "_credential_poll_attempts", 0) + 1
+        if self._credential_poll_attempts < 60:
+            self.status.set("Server starting · waiting for vault phrase, pairing code, and master key…")
+            self.root.after(500, self._report_start)
+        else:
+            self.status.set("Server is running, but credentials are missing. Check the configured data folder and host-errors.log.")
 
     def _load_credentials(self) -> None:
-        # Load each file independently so one missing/legacy credential cannot hide
-        # the other values that are already available for copying.
+        # Each file is independent and credentials are refreshed while the host
+        # starts; this handles slow startup and packaged managers using --data-dir.
         def read_secret(filename: str) -> str:
             try:
-                return (DATA / filename).read_text(encoding="utf-8").strip()
-            except OSError:
+                value = (DATA / filename).read_text(encoding="utf-8").strip()
+                return value if value else ""
+            except (OSError, UnicodeError):
                 return ""
 
         vault = read_secret("vault-passphrase.txt")
-        pairing = read_secret("pairing-code.txt")
+        pairing = read_secret("pairing-code.txt").upper()
         master = read_secret("master-key.txt")
         self.vault_phrase = vault
         self.pairing_code = pairing
         self.master_key = master
-        self.vault_phrase_var.set(vault or "Not loaded yet")
-        self.pairing_code_var.set(pairing or "Not loaded yet")
-        self.master_key_var.set(master or "Not loaded yet")
+        self.vault_phrase_var.set(vault or "Waiting for host to create vault phrase…")
+        self.pairing_code_var.set(pairing or "Waiting for host to create pairing code…")
+        self.master_key_var.set(master or "Waiting for host to create master key…")
         if vault and pairing and master:
-            self.credentials.set("Host credentials loaded. Use the Copy buttons to transfer a value securely.")
+            self.credentials.set("All host credentials loaded. Use the matching Copy button.")
         else:
-            self.credentials.set("Some credentials are still initializing or unavailable. Copy any value that has loaded; check server/data if one stays unavailable.")
+            missing = []
+            if not vault: missing.append("vault phrase")
+            if not pairing: missing.append("pairing code")
+            if not master: missing.append("master key")
+            self.credentials.set("Waiting for: " + ", ".join(missing) + ". Credentials are read from: " + str(DATA))
 
     def stop_server(self) -> None:
         if not self.process or self.process.poll() is not None:
