@@ -2242,6 +2242,8 @@
       } catch (_) {}
     }
     if (params.get("tsReconnect") === "1") {
+      // Pair again on reconnect without needlessly forcing a new account login.
+      // Revoke only the old device credential; keep this host's account session.
       if (state.token && state.deviceId && state.accountToken) {
         try {
           await fetch("/api/devices/revoke", {
@@ -2253,12 +2255,8 @@
       }
       localStorage.removeItem(LS.token);
       localStorage.removeItem(LS.device);
-      localStorage.removeItem(LS.accountToken);
-      localStorage.removeItem(LS.account);
       state.token = "";
       state.deviceId = "";
-      state.accountToken = "";
-      state.account = null;
     }
     if (encoded || params.has("tsReconnect")) history.replaceState(null, "", location.pathname);
   }
