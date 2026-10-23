@@ -1148,6 +1148,9 @@
 
   /* ---------------------------------------------------------------- messages */
   function renderMessages() {
+    const oldDistance = ui.messages.scrollHeight - ui.messages.scrollTop - ui.messages.clientHeight;
+    const wasNearBottom = oldDistance < 150;
+    const previousTop = ui.messages.scrollTop;
     ui.messages.replaceChildren();
     state.lastRendered = { day: null, device: null, at: 0 };
     state.newBelow = 0;
@@ -1156,7 +1159,13 @@
       (!state.searchQuery || (m.text || "").toLocaleLowerCase().includes(state.searchQuery)));
     for (const message of list) appendMessage(message, { forceScroll: false, track: false, updateEmpty: false });
     updateEmptyState();
-    scrollToBottom(false);
+    if (wasNearBottom) {
+      scrollToBottom(false);
+    } else {
+      // Rebuilding a message after edit/delete must not yank readers back to the end.
+      ui.messages.scrollTop = previousTop;
+      updateJumpButton();
+    }
   }
 
   function updateEmptyState() {
@@ -1457,6 +1466,16 @@
       toast(`Nothing to copy for ${label.toLowerCase()}.`, "error");
       return false;
     }
+    // The Android WebView has a native clipboard bridge because clipboard API
+    // permissions differ between WebView versions and app HTTPS origins.
+    try {
+      if (window.TerminusNative && typeof window.TerminusNative.copyText === "function") {
+        const nativeCopied = window.TerminusNative.copyText(text);
+        if (nativeCopied === true || nativeCopied === "true") return true;
+      }
+    } catch (_) {
+      // Continue with the browser clipboard implementations below.
+    }
     try {
       if (navigator.clipboard?.writeText && window.isSecureContext) {
         await navigator.clipboard.writeText(text);
@@ -1468,16 +1487,22 @@
     const area = document.createElement("textarea");
     area.value = text;
     area.setAttribute("readonly", "");
-    area.setAttribute("aria-hidden", "true");
+    area.setAttribute("aria-label", `Copy ${label}`);
     area.style.position = "fixed";
-    area.style.left = "-9999px";
-    area.style.top = "0";
+    area.style.inset = "0 auto auto 0";
+    area.style.width = "2px";
+    area.style.height = "2px";
+    area.style.padding = "0";
+    area.style.opacity = "0.01";
+    area.style.zIndex = "2147483647";
     document.body.append(area);
+    area.focus({ preventScroll: true });
     area.select();
+    area.setSelectionRange(0, text.length);
     let copied = false;
     try { copied = document.execCommand("copy"); } catch (_) { copied = false; }
     area.remove();
-    if (!copied) toast(`Could not copy ${label.toLowerCase()}. Select the value and copy it manually.`, "error");
+    if (!copied) toast(`Could not copy ${label.toLowerCase()}. Long-press the visible value and copy it manually.`, "error");
     return copied;
   }
 
