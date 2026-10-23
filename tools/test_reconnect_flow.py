@@ -28,7 +28,17 @@ assert '("Pairing code", self.pairing_code_var)' in SETTINGS
 assert '("Master key", self.master_key_var)' in SETTINGS
 assert 'read_secret("master-key.txt")' in SETTINGS
 assert "def _copy_secret(self, value: str, label: str)" in SETTINGS
-assert "Load each file independently" in SETTINGS
+assert '["clip.exe"]' in SETTINGS
+assert "def _report_start(self)" in SETTINGS
+assert "self.root.after(500, self._report_start)" in SETTINGS
+assert "self.vault_phrase and self.pairing_code and self.master_key" in SETTINGS
+assert "async function copyTextToClipboard" in APP
+assert "window.TerminusNative.copyText(text)" in APP
+assert "function updateJump()" in APP
+assert "ui.messages.scrollTop = previousTop" in APP
+assert "@JavascriptInterface\n        public boolean copyText(String value)" in ANDROID
+assert "ClipboardManager clipboard" in ANDROID
+assert "Each file is independent and credentials are refreshed while the host" in SETTINGS
 assert 'read_secret("master-key.txt")' in SETTINGS
 assert "async function copyTextToClipboard" in APP
 assert "if (!copied) toast(" in APP
