@@ -55,6 +55,24 @@ def main() -> int:
             })
             assert status == 409, (status, duplicate)
 
+            # Unicode-aware casefold uniqueness is stricter than SQLite NOCASE.
+            status, unicode_created = request(base, "/api/accounts/register", "POST", {
+                "username": "Straße",
+                "password": "unicode-casefold-password",
+                "display_name": "Repeated display name",
+            })
+            assert status == 200, (status, unicode_created)
+            status, unicode_duplicate = request(base, "/api/accounts/register", "POST", {
+                "username": "STRASSE",
+                "password": "another-long-password",
+            })
+            assert status == 409, (status, unicode_duplicate)
+            status, unicode_login = request(base, "/api/accounts/login", "POST", {
+                "username": "STRASSE",
+                "password": "unicode-casefold-password",
+            })
+            assert status == 200 and unicode_login.get("account_token"), (status, unicode_login)
+
             status, session = request(base, "/api/accounts/session", account_token=created["account_token"])
             assert status == 200, (status, session)
             assert session.get("account", {}).get("id") == created["account"]["id"], session
