@@ -7,16 +7,16 @@ This is a source and CI audit, **not a claim that every UI path has been manuall
 ## Implemented in source
 
 - **Accounts:** sign-up/sign-in is required before pairing. Usernames are unique case-insensitively per host; display names can be reused. Passwords are stored as PBKDF2-HMAC-SHA256 hashes. Multiple devices can still be paired to the same account.
-- **Saved hosts and reconnect:** a sidebar lets users save up to 20 HTTPS host addresses. Reconnecting requires account sign-in, pairing code (or master key for enrollment), and vault phrase. A stale saved address must be updated if the host's public address changes.
+- **Saved hosts and reconnect:** a sidebar lets users save up to 20 HTTPS host addresses. Reconnecting clears/revokes the prior device credential so the user must pair again, but preserves a still-valid account session instead of unnecessarily forcing signup/login. The pairing code (or master key for enrollment) and vault phrase are entered again. A stale saved address must be updated if the host's public address changes.
 - **Stable host identity:** the vault phrase, pairing code, master key, TLS certificate, database, and settings are stored under the persistent host data folder. Preserve that folder across app updates and network changes to keep credentials stable.
 - **Servers and channels:** create/join/invite, edit/delete servers, create/edit/delete channels, categories, private channels, server owner/admin/member roles, and private-channel membership controls.
 - **Master-key administration:** a device enrolled with the host master key is marked as a host administrator for private-channel access management, even if its account is only a normal server member. The host checks this permission server-side; ordinary members remain denied. The shared UI exposes this access-management action on both Android and Windows.
 - **Direct messages:** one-to-one and group DMs, with server-side conversation-membership checks.
 - **Message tools:** replies, reactions, pins, edit/delete, typing indicators, unread counts, search over loaded history, and mention highlighting.
-- **Notifications:** Windows/browser notifications and an Android native notification bridge are implemented, but these are not a remote push service and may be missed when the app is suspended, terminated, or throttled by the operating system.
+- **Notifications:** Windows/browser notifications and an Android native notification bridge are implemented. The first Android notification is queued while Android 13+ asks for permission, then delivered if permission is granted. These are not a remote push service and may be missed when the app is suspended, terminated, or throttled by the operating system.
 - **Photos/files and voice notes:** host settings can disable these capabilities. Attachments and voice-note payloads are encrypted on the sending client; ordinary attachments are size-limited and voice notes are short.
 - **Voice/video calls and screen sharing:** one-to-one DM calls use WebRTC signaling; screen sharing depends on browser/Electron/Android WebView support and user permission. No bundled TURN relay is configured, so calls can fail on restrictive NATs, mobile carriers, or firewalls.
-- **Standalone host manager:** the GUI configures the HTTPS port and optional public URL, toggles photos/voice messages/voice calls/video calls/screen sharing, estimates RAM, displays persistent credentials locally, and starts/stops the host. CI packages `TerminusSecretsHostManager.exe` and `TerminusSecretsHost.exe`.
+- **Standalone host manager:** the GUI configures the HTTPS port and optional public URL, toggles photos/voice messages/voice calls/video calls/screen sharing, estimates RAM/CPU/VRAM, displays persistent credentials locally, and starts/stops the host. Resource values are planning estimates for the host and local Windows client on an Intel 12th-gen Core i5 / 5 GB RAM / RTX 3050 4 GB system, not live measurements or enforced limits. Remote users' clients do not consume their full RAM/VRAM on the host. CI packages `TerminusSecretsHostManager.exe` and `TerminusSecretsHost.exe`.
 - **Scroll behavior:** the shared CSS gives the connection screen, channel sidebar, dialogs, and message timeline constrained scroll areas. The native manager uses a scrollable canvas and wheel-event handling. Regression scripts verify source invariants, but manual touchpad/touch testing is still required.
 
 ## Network and credential caveats
@@ -43,7 +43,7 @@ A successful workflow means these automated checks and packaging steps passed. I
 
 ## Approximate resource use on an Intel Core i5 12th-generation laptop, RTX 3050 4 GB VRAM, and 5 GB system RAM
 
-These are **rough planning estimates**, not measurements from that machine. The host manager's RAM bar is not a live process monitor and does not enforce a hard cap. Estimates are for the laptop's Python host plus a Windows client; the Android client's UI memory is used on the phone.
+These are **rough planning estimates**, not measurements from that machine. The host manager's resource labels are not live process monitors and do not enforce hard caps. Estimates are for the laptop's Python host plus a Windows client; the Android client's UI memory is used on the phone. Remote clients' RAM and GPU use are on their own devices, not the host laptop.
 
 | Workload | Approximate CPU usage | Approximate Terminus RAM on laptop | RTX 3050 usage |
 |---|---:|---:|---:|
@@ -54,13 +54,13 @@ These are **rough planning estimates**, not measurements from that machine. The 
 | Video call + screen share | 15–45% | 1.2–2.4 GB | 5–30%, depending on encode/decode acceleration |
 | Several clients with active media | 20–70%+ | 2–4.5 GB | 5–40%, depending on active video |
 
-CPU figures are approximate whole-CPU usage, not a benchmark; codec and driver behavior can change them substantially. With only 5 GB of physical RAM, **do not treat 4–5 GB as a safe app budget**: Windows and background applications need memory too. Keep the host plus Windows client near text-chat/light-use workloads, limit concurrent media sessions, close heavy applications, and monitor Task Manager. The app currently does not enforce a hard RAM limit.
+CPU/VRAM figures are approximate whole-system planning ranges, not benchmarks; the host does not transcode peer-to-peer media, so host-only GPU use should be near zero. Codec and driver behavior can change local-client usage substantially. With only 5 GB of physical RAM, **do not treat 4–5 GB as a safe app budget**: Windows and background applications need memory too. Keep the host plus Windows client near text-chat/light-use workloads, limit concurrent media sessions, close heavy applications, and monitor Task Manager. The app currently does not enforce a hard RAM limit.
 
 ## Known gaps — not Discord feature parity
 
 - No group voice/video rooms or push-to-talk.
 - No bundled TURN relay; peer-to-peer calls can fail on restrictive networks.
-- No reliable automatic discovery when the host's public IPv6 address changes.
+- No reliable automatic discovery when the host's public IPv6 address changes; use a stable hostname/dynamic DNS service in the Public URL field if available, otherwise update the saved host address when the carrier changes IPv6.
 - Android screen sharing is platform/WebView-dependent.
 - Notifications are best-effort local/browser/native notifications, not guaranteed push delivery while the app is fully suspended.
 - No physical-device test is represented by source checks alone. Manual Windows and Android testing, including actual media calls and reconnecting after network changes, remains necessary.
