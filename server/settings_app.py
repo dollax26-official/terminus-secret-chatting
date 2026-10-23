@@ -460,22 +460,27 @@ class HostSettingsApp:
             self.stop_button.configure(state="disabled")
 
     def _load_credentials(self) -> None:
-        try:
-            vault = (DATA / "vault-passphrase.txt").read_text(encoding="utf-8").strip()
-            pairing = (DATA / "pairing-code.txt").read_text(encoding="utf-8").strip()
-            master = (DATA / "master-key.txt").read_text(encoding="utf-8").strip()
-            self.vault_phrase = vault
-            self.pairing_code = pairing
-            self.master_key = master
-            self.vault_phrase_var.set(vault or "Not loaded yet")
-            self.pairing_code_var.set(pairing or "Not loaded yet")
-            self.master_key_var.set(master or "Not loaded yet")
+        # Load each file independently so one missing/legacy credential cannot hide
+        # the other values that are already available for copying.
+        def read_secret(filename: str) -> str:
+            try:
+                return (DATA / filename).read_text(encoding="utf-8").strip()
+            except OSError:
+                return ""
+
+        vault = read_secret("vault-passphrase.txt")
+        pairing = read_secret("pairing-code.txt")
+        master = read_secret("master-key.txt")
+        self.vault_phrase = vault
+        self.pairing_code = pairing
+        self.master_key = master
+        self.vault_phrase_var.set(vault or "Not loaded yet")
+        self.pairing_code_var.set(pairing or "Not loaded yet")
+        self.master_key_var.set(master or "Not loaded yet")
+        if vault and pairing and master:
             self.credentials.set("Host credentials loaded. Use the Copy buttons to transfer a value securely.")
-        except OSError:
-            self.credentials.set("Credentials are being initialized. Wait a moment, then check again.")
-            self.vault_phrase_var.set("Not loaded yet")
-            self.pairing_code_var.set("Not loaded yet")
-            self.master_key_var.set("Not loaded yet")
+        else:
+            self.credentials.set("Some credentials are still initializing or unavailable. Copy any value that has loaded; check server/data if one stays unavailable.")
 
     def stop_server(self) -> None:
         if not self.process or self.process.poll() is not None:
