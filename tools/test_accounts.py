@@ -79,6 +79,8 @@ def main() -> int:
             server.shutdown()
             server.server_close()
             thread.join(timeout=2)
+            # host.db() closes each SQLite connection; the temporary directory
+            # can therefore be removed immediately on Windows as well.
 
 
 if __name__ == "__main__":
