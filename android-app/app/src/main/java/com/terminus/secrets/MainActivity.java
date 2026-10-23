@@ -8,6 +8,8 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.SharedPreferences;
@@ -410,6 +412,20 @@ public class MainActivity extends Activity {
     }
 
     private final class NativeNotifications {
+        @JavascriptInterface
+        public boolean copyText(String value) {
+            if (value == null || value.isEmpty()) return false;
+            try {
+                ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                if (clipboard == null) return false;
+                clipboard.setPrimaryClip(ClipData.newPlainText("Terminus Secrets", value));
+                runOnUiThread(() -> Toast.makeText(
+                        MainActivity.this, "Copied to clipboard", Toast.LENGTH_SHORT).show());
+                return true;
+            } catch (RuntimeException ex) {
+                return false;
+            }
+        }
         @JavascriptInterface
         public void saveHosts(String savedHostsJson) {
             prefs.edit().putString(PREF_HOSTS, savedHostsJson == null ? "[]" : savedHostsJson).apply();
