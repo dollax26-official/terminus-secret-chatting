@@ -595,3 +595,69 @@ input::placeholder,textarea::placeholder{opacity:1;color:var(--faint)}
   .dialog-foot .foot-left>* ,.dialog-foot .foot-right>*{flex:1}
   .dialog .field textarea{max-height:28dvh}
 }
+
+
+/* Cross-platform scroll fix: force a bounded scrollport instead of allowing
+   flex children to expand to the full message history (Chromium/WebView quirk). */
+html, body { min-width: 0; min-height: 0; }
+#connectView {
+  min-height: 0;
+  height: 100vh;
+  height: 100dvh;
+  overscroll-behavior-y: auto;
+  touch-action: pan-y pinch-zoom;
+  -webkit-overflow-scrolling: touch;
+}
+#chatView.app {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+#chatView .rail {
+  min-height: 0;
+  overscroll-behavior-y: auto;
+  touch-action: pan-y pinch-zoom;
+  -webkit-overflow-scrolling: touch;
+}
+#chatView .stage {
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+#chatView .messages {
+  height: 0;
+  min-height: 0;
+  max-height: none;
+  flex: 1 1 0%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: auto;
+  touch-action: pan-y pinch-zoom;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: auto;
+}
+#chatView .rooms,
+#chatView .saved-host-list {
+  min-height: 0;
+  overscroll-behavior-y: auto;
+  touch-action: pan-y pinch-zoom;
+  -webkit-overflow-scrolling: touch;
+}
+.dialog {
+  max-height: 90vh;
+  max-height: 90dvh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+}
+@media (max-width: 820px) {
+  #chatView .stage { height: 100%; }
+  #chatView .messages { padding-bottom: max(16px, env(safe-area-inset-bottom)); }
+  #connectView { padding-bottom: max(24px, env(safe-area-inset-bottom)); }
+}
