@@ -68,6 +68,10 @@ class HostSettingsApp:
         self.credentials = tk.StringVar(value="Not started yet — start the server to load its saved credentials.")
         self.vault_phrase = ""
         self.pairing_code = ""
+        self.master_key = ""
+        self.vault_phrase_var = tk.StringVar(value="Not loaded yet")
+        self.pairing_code_var = tk.StringVar(value="Not loaded yet")
+        self.master_key_var = tk.StringVar(value="Not loaded yet")
         self.vars = {name: tk.BooleanVar(value=DEFAULTS[name]) for name in DEFAULTS}
         self._load_config()
         self._style()
@@ -159,8 +163,21 @@ class HostSettingsApp:
         secrets_panel = ttk.Frame(outer, style="Panel.TFrame", padding=14)
         secrets_panel.pack(fill="x", pady=(0, 12))
         ttk.Label(secrets_panel, text="PERSISTENT HOST CREDENTIALS").pack(anchor="w", pady=(0, 6))
-        ttk.Label(secrets_panel, textvariable=self.credentials, style="Muted.TLabel", wraplength=620).pack(anchor="w")
-        ttk.Label(secrets_panel, text="Keep these values private. They stay on this host and are not sent to clients until you share them.", style="Muted.TLabel", wraplength=620).pack(anchor="w", pady=(5, 0))
+        ttk.Label(secrets_panel, text="Copy these values into your other devices. The vault phrase decrypts history; the pairing code and master key enroll devices.", style="Muted.TLabel", wraplength=620).pack(anchor="w", pady=(0, 8))
+        for label, variable in (
+            ("Vault phrase", self.vault_phrase_var),
+            ("Pairing code", self.pairing_code_var),
+            ("Master key", self.master_key_var),
+        ):
+            credential_row = ttk.Frame(secrets_panel, style="Panel.TFrame")
+            credential_row.pack(fill="x", pady=4)
+            ttk.Label(credential_row, text=label, width=13).pack(side="left", anchor="w")
+            credential_entry = ttk.Entry(credential_row, textvariable=variable, state="readonly")
+            credential_entry.pack(side="left", fill="x", expand=True, padx=(4, 8))
+            ttk.Button(credential_row, text="Copy",
+                command=lambda var=variable, title=label: self._copy_secret(var.get(), title)
+            ).pack(side="right")
+        ttk.Label(secrets_panel, text="Keep these values private. They remain in this host's data folder; only share them with people you trust.", style="Muted.TLabel", wraplength=620).pack(anchor="w", pady=(7, 0))
 
         options = ttk.Frame(outer, style="Panel.TFrame", padding=14)
         options.pack(fill="x", pady=(0, 12))
@@ -244,9 +261,25 @@ class HostSettingsApp:
     def _copy_public_text(self, value: str) -> None:
         value = (value or "").strip()
         if not value or value in {"Checking…", "Address unavailable", "IPv6 unavailable"}:
-            messagebox.showwarning("Unavailable", "There is no address to copy yet."); return
-        self.root.clipboard_clear(); self.root.clipboard_append(value); self.root.update_idletasks()
+            messagebox.showwarning("Unavailable", "There is no address to copy yet.")
+            return
+        self.root.clipboard_clear()
+        self.root.clipboard_append(value)
+        self.root.update()
         self.status.set("Address copied to clipboard")
+
+    def _copy_secret(self, value: str, label: str) -> None:
+        value = (value or "").strip()
+        if not value or value == "Not loaded yet":
+            messagebox.showwarning("Credential unavailable", f"{label} is not available yet. Start the server first.")
+            return
+        try:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(value)
+            self.root.update()
+            self.status.set(f"{label} copied to clipboard")
+        except tk.TclError as exc:
+            messagebox.showerror("Copy failed", f"Could not copy {label.lower()} to the clipboard: {exc}")
 
     def _update_address(self) -> None:
         custom = self.public_url.get().strip().rstrip("/")
@@ -430,11 +463,19 @@ class HostSettingsApp:
         try:
             vault = (DATA / "vault-passphrase.txt").read_text(encoding="utf-8").strip()
             pairing = (DATA / "pairing-code.txt").read_text(encoding="utf-8").strip()
+            master = (DATA / "master-key.txt").read_text(encoding="utf-8").strip()
             self.vault_phrase = vault
             self.pairing_code = pairing
-            self.credentials.set(f"Vault phrase: {vault}\nPairing code: {pairing}")
+            self.master_key = master
+            self.vault_phrase_var.set(vault or "Not loaded yet")
+            self.pairing_code_var.set(pairing or "Not loaded yet")
+            self.master_key_var.set(master or "Not loaded yet")
+            self.credentials.set("Host credentials loaded. Use the Copy buttons to transfer a value securely.")
         except OSError:
             self.credentials.set("Credentials are being initialized. Wait a moment, then check again.")
+            self.vault_phrase_var.set("Not loaded yet")
+            self.pairing_code_var.set("Not loaded yet")
+            self.master_key_var.set("Not loaded yet")
 
     def stop_server(self) -> None:
         if not self.process or self.process.poll() is not None:
