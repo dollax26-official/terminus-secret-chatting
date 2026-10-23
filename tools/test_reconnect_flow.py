@@ -23,5 +23,12 @@ assert "Media sessions on this PC" in SETTINGS
 assert "Estimated CPU on 12th-gen Intel Core i5" in SETTINGS
 assert "Estimated RTX 3050 4 GB VRAM (local client only)" in SETTINGS
 assert "not live telemetry" in SETTINGS
+assert '("Vault phrase", self.vault_phrase_var)' in SETTINGS
+assert '("Pairing code", self.pairing_code_var)' in SETTINGS
+assert '("Master key", self.master_key_var)' in SETTINGS
+assert 'DATA / "master-key.txt"' in SETTINGS
+assert "def _copy_secret(self, value: str, label: str)" in SETTINGS
+assert "async function copyTextToClipboard" in APP
+assert "if (!copied) toast(" in APP
 
-print("Reconnect, Android notification permission, and resource-estimate source checks passed.")
+print("Reconnect, credential copy, Android notification permission, clipboard fallback, and resource-estimate source checks passed.")
