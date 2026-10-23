@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+from contextlib import contextmanager
 import hashlib
 import hmac
 import json
@@ -37,6 +38,7 @@ import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Iterator
 from urllib.parse import parse_qs, urlparse
 
 APP_NAME = "Terminus Secrets"
@@ -111,16 +113,25 @@ def sha256_hex(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def db() -> sqlite3.Connection:
-    # WAL is enabled once during database initialization, not on every request.
-    # Re-running journal_mode=WAL for every short-lived connection adds avoidable
-    # locking and filesystem work to the hot message/sync path.
+@contextmanager
+def db() -> Iterator[sqlite3.Connection]:
+    # sqlite3.Connection's built-in context manager commits/rolls back but does
+    # not close the connection. This app opens one connection per operation, so
+    # close it explicitly to avoid accumulating file handles and locking the DB
+    # (especially on Windows).
     conn = sqlite3.connect(DB_PATH, timeout=5)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA busy_timeout=5000")
     conn.execute("PRAGMA foreign_keys=ON")
     conn.execute("PRAGMA synchronous=NORMAL")
-    return conn
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def get_meta(key: str, default: str = "") -> str:
