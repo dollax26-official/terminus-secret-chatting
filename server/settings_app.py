@@ -184,10 +184,10 @@ class HostSettingsApp:
         self.ram_text.pack(side="right")
         capacity = ttk.Frame(estimate, style="Panel.TFrame")
         capacity.pack(fill="x", pady=(10, 2))
-        ttk.Label(capacity, text="Connected clients").pack(side="left")
+        ttk.Label(capacity, text="Local clients on this PC").pack(side="left")
         self.clients_spin = ttk.Spinbox(capacity, from_=1, to=32, width=5, textvariable=self.expected_clients, command=self._update_estimate)
         self.clients_spin.pack(side="left", padx=(8, 18))
-        ttk.Label(capacity, text="Concurrent media sessions").pack(side="left")
+        ttk.Label(capacity, text="Media sessions on this PC").pack(side="left")
         self.media_spin = ttk.Spinbox(capacity, from_=0, to=12, width=5, textvariable=self.concurrent_media, command=self._update_estimate)
         self.media_spin.pack(side="left", padx=(8, 0))
         self.expected_clients.trace_add("write", lambda *_: self._update_estimate())
@@ -197,6 +197,10 @@ class HostSettingsApp:
         ttk.Label(estimate, text="Scale: 0–5 GB available budget · orange warning above 4 GB", style="Muted.TLabel").pack(anchor="w")
         self.ram_note = ttk.Label(estimate, text="", style="Muted.TLabel", wraplength=620)
         self.ram_note.pack(anchor="w")
+        self.cpu_text = ttk.Label(estimate, text="", style="TLabel", wraplength=620)
+        self.cpu_text.pack(anchor="w", pady=(8, 0))
+        self.vram_text = ttk.Label(estimate, text="", style="TLabel", wraplength=620)
+        self.vram_text.pack(anchor="w", pady=(4, 0))
 
         footer = ttk.Frame(outer)
         footer.pack(fill="x", pady=(4, 0))
@@ -296,15 +300,49 @@ class HostSettingsApp:
         if not hasattr(self, "ram_text"):
             return
         mb = self._estimate_mb()
-        self.ram_text.configure(text=f"~{mb} MB ({mb / 1024:.2f} GB) / 5 GB budget")
+        self.ram_text.configure(text=f"~{mb} MB ({mb / 1024:.2f} GB) / 5 GB system RAM")
         self.ram_bar.configure(value=min(mb, RAM_BUDGET_MB))
+        try:
+            local_clients = max(1, min(32, int(self.expected_clients.get())))
+        except (tk.TclError, ValueError):
+            local_clients = 2
+        try:
+            sessions = max(0, min(12, int(self.concurrent_media.get())))
+        except (tk.TclError, ValueError):
+            sessions = 1
+        cpu_low = 1.0 + local_clients * 0.5
+        cpu_high = 3.0 + local_clients * 1.2
+        if self.vars["voice_calls"].get():
+            cpu_low += sessions * 1.0
+            cpu_high += sessions * 3.0
+        if self.vars["video_calls"].get():
+            cpu_low += sessions * 3.0
+            cpu_high += sessions * 9.0
+        if self.vars["screen_sharing"].get():
+            cpu_low += sessions * 2.0
+            cpu_high += sessions * 6.0
+        self.cpu_text.configure(
+            text=f"Estimated CPU on 12th-gen Intel Core i5: {min(100, cpu_low):.0f}–{min(100, cpu_high):.0f}%"
+        )
+        # The host is a signaling/message relay and does not transcode media.
+        # VRAM applies only when this PC also runs a local Windows chat client.
+        vram_low = sessions * (0.10 if self.vars["video_calls"].get() else 0.0)
+        vram_high = sessions * (
+            (0.45 if self.vars["video_calls"].get() else 0.0)
+            + (0.20 if self.vars["screen_sharing"].get() else 0.0)
+        )
+        self.vram_text.configure(
+            text=(f"Estimated RTX 3050 4 GB VRAM (local client only): "
+                  f"{vram_low:.1f}–{min(3.8, vram_high):.1f} GB; host-only use is near 0 GB")
+        )
         if mb > RAM_CAUTION_MB:
             note = ("WARNING: this planning estimate exceeds 4 GB. Reduce expected clients or concurrent media sessions. "
                     "This is a planning model, not a hard memory cap or live measurement.")
         else:
-            note = ("Planning estimate only — not a live measurement or a hard RAM limit. Assumes about 180 MB per connected "
-                    "client plus a host baseline and the enabled capabilities for each concurrent media session. Real usage "
-                    "depends on browser/WebView processes, media resolution, OS overhead, and other running apps.")
+            note = ("Planning estimate only — not live telemetry, a benchmark, or a hard memory limit. It estimates this PC's "
+                    "host plus local client(s); remote users' devices do not consume their full RAM on this host. Media costs "
+                    "apply only to sessions active on this PC. Real usage depends on browser/WebView processes, resolution, "
+                    "drivers, hardware acceleration, OS overhead, and other running apps.")
         self.ram_note.configure(text=note)
 
     def _save(self) -> None:
