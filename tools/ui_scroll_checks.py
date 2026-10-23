@@ -12,6 +12,12 @@ HOST_UI = (ROOT / "server" / "settings_app.py").read_text(encoding="utf-8")
 required_css = (
     ".connect {",
     ".rail {",
+    ".msg .bubble {",
+    ".room-btn.active {",
+    ".composer textarea {",
+    ".primary {",
+    ".dialog-head {",
+    ".field input:focus-visible",
     ".rooms {",
     ".messages {",
     ".dialog {",
