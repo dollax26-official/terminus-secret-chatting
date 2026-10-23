@@ -567,3 +567,31 @@ button:focus:not(:focus-visible) { outline: none; }
 @media(max-width:820px){.stage-head{min-height:62px;gap:8px;padding:8px 10px}.stage-title h2{font-size:15px}.head-badges{gap:3px}.head-badges .badge{display:none}.msg{gap:7px;margin-bottom:12px}.msg .body{max-width:88%}.composer{width:calc(100% - 16px);gap:5px;padding:6px;margin-top:7px}.attach-btn,.send-btn{width:38px;height:40px}.composer textarea{font-size:16px}.dialog-inner{padding:16px}}
 @media(max-width:460px){.chat-search{width:34px;padding:0 8px;flex:0 0 34px}.chat-search:focus-within{width:min(36vw,150px)}.head-badges .call-action{min-width:34px;padding:0 6px}.msg .body{max-width:88%}.msg .bubble{padding:10px 12px;font-size:14px}.composer{width:calc(100% - 12px)}}
 @media(prefers-reduced-motion:reduce){.room-btn,.icon-btn,.ghost-btn,.danger-btn,.primary,.attach-btn{transition:none}.msg{animation:none}}
+
+
+/* Final interaction polish: dialogs remain reachable on short screens and
+   all controls provide consistent pressed, disabled and keyboard states. */
+.dialog{
+  width:min(620px,calc(100vw - 28px));
+  max-width:calc(100vw - 28px);
+  max-height:min(88dvh,900px);
+  overflow-x:hidden;
+  overflow-y:auto;
+  overscroll-behavior:contain;
+  scrollbar-width:thin;
+  scrollbar-color:#34465c transparent;
+}
+.dialog-inner{min-height:0}
+.dialog .field textarea{resize:vertical;max-height:35dvh}
+button,[role="button"],input,textarea,select{-webkit-tap-highlight-color:transparent}
+button:not(:disabled):active,.room-btn:not(:disabled):active{transform:translateY(1px)}
+button:disabled{filter:saturate(.65)}
+input::placeholder,textarea::placeholder{opacity:1;color:var(--faint)}
+::selection{color:#031b18;background:rgba(62,224,197,.34)}
+@media(max-width:460px){
+  .dialog{width:calc(100vw - 16px);max-width:calc(100vw - 16px);max-height:92dvh;border-radius:14px}
+  .dialog-foot{align-items:stretch}
+  .dialog-foot .foot-left,.dialog-foot .foot-right{width:100%}
+  .dialog-foot .foot-left>* ,.dialog-foot .foot-right>*{flex:1}
+  .dialog .field textarea{max-height:28dvh}
+}
