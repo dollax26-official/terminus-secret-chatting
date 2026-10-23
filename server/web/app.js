@@ -1164,7 +1164,7 @@
     } else {
       // Rebuilding a message after edit/delete must not yank readers back to the end.
       ui.messages.scrollTop = previousTop;
-      updateJumpButton();
+      updateJump();
     }
   }
 
