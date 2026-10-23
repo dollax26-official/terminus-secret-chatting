@@ -28,6 +28,8 @@ assert '("Pairing code", self.pairing_code_var)' in SETTINGS
 assert '("Master key", self.master_key_var)' in SETTINGS
 assert 'DATA / "master-key.txt"' in SETTINGS
 assert "def _copy_secret(self, value: str, label: str)" in SETTINGS
+assert "Load each file independently" in SETTINGS
+assert 'read_secret("master-key.txt")' in SETTINGS
 assert "async function copyTextToClipboard" in APP
 assert "if (!copied) toast(" in APP
 
