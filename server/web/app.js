@@ -422,7 +422,17 @@
         body: JSON.stringify({ username, password, display_name: displayName }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Account authentication failed.");
+      if (!res.ok) {
+        const message = data.error || (res.status === 409
+          ? "That username is already taken."
+          : res.status === 400
+            ? "Check your username and password requirements."
+            : "Account authentication failed.");
+        throw new Error(message);
+      }
+      if (!data.account_token || !data.account) {
+        throw new Error("The host returned an incomplete account response. Update/restart the host and try again.");
+      }
       state.accountToken = data.account_token;
       state.account = data.account;
       localStorage.setItem(LS.accountToken, state.accountToken);
@@ -2569,6 +2579,31 @@
   }
 
   /* ------------------------------------------------------------------- init */
+  async function validateSavedAccountSession() {
+    if (!state.accountToken) return false;
+    try {
+      const response = await fetch("/api/accounts/session", {
+        cache: "no-store",
+        headers: { "X-Account-Token": state.accountToken },
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.account) {
+        throw new Error(data.error || "Saved account session is no longer valid.");
+      }
+      state.account = data.account;
+      localStorage.setItem(LS.account, JSON.stringify(state.account));
+      return true;
+    } catch (_) {
+      // A stale token must never hide the only sign-in/sign-up form.
+      state.accountToken = "";
+      state.account = null;
+      localStorage.removeItem(LS.accountToken);
+      localStorage.removeItem(LS.account);
+      ui.accountError.textContent = "Your saved session expired or could not be verified. Sign in or create an account again.";
+      return false;
+    }
+  }
+
   async function init() {
     await restoreSavedHostsFromUrl();
     cacheUi();
@@ -2576,17 +2611,23 @@
     if (ui.accountDisplayName) ui.accountDisplayName.closest(".field").hidden = true;
     await loadServerFeatures();
     ui.deviceInput.value = state.deviceName;
-    ui.accountPanel.hidden = Boolean(state.accountToken);
-    ui.connectForm.hidden = !state.accountToken;
-    if (state.account) {
-      ui.accountUsername.value = state.account.username || "";
-    }
+
     const reachable = await checkHost();
-    if (state.accountToken && state.token) setMode("unlock");
+    let accountSessionValid = false;
+    if (state.accountToken && reachable) {
+      accountSessionValid = await validateSavedAccountSession();
+    }
+    // If the host is down, show sign-in rather than trapping the user behind a
+    // cached token. Keep that token until the server can be checked again.
+    ui.accountPanel.hidden = accountSessionValid;
+    ui.connectForm.hidden = !accountSessionValid;
+    if (state.account) ui.accountUsername.value = state.account.username || "";
+    if (accountSessionValid && state.token) setMode("unlock");
     else setMode("pair");
     if (!reachable) {
       ui.connectError.textContent =
         "The host is not reachable. Start host.py on your laptop, then reload.";
+      ui.accountError.textContent = "Can't reach the host right now. Start the host, then sign in or create your account.";
     }
     updateEmptyState();
   }
