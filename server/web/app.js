@@ -711,9 +711,12 @@
     ui.switchModeBtn.textContent = unlock ? "Pair a different device" : "Back to unlock";
     ui.connectError.textContent = "";
     if (!unlock) {
+      // Always offer the pairing code first on a new/re-paired device.
+      // The master key remains available as an explicit alternate method.
+      state.authMethod = "code";
       ui.codeInput.value = "";
       ui.deviceInput.value = state.deviceName || guessDeviceName();
-      setAuthMethod(state.authMethod);
+      setAuthMethod("code");
     }
     setTimeout(() => (unlock ? ui.passInput : ui.codeInput).focus(), 60);
   }
