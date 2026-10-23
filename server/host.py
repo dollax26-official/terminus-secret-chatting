@@ -251,6 +251,7 @@ def init_db(passphrase: str) -> None:
             CREATE TABLE IF NOT EXISTS accounts (
                 id TEXT PRIMARY KEY,
                 username TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                username_key TEXT NOT NULL DEFAULT '',
                 display_name TEXT NOT NULL DEFAULT '',
                 password_salt BLOB NOT NULL,
                 password_hash BLOB NOT NULL,
@@ -337,6 +338,18 @@ def init_db(passphrase: str) -> None:
             """
         )
         account_columns = [row["name"] for row in conn.execute("PRAGMA table_info(accounts)")]
+        if "username_key" not in account_columns:
+            conn.execute("ALTER TABLE accounts ADD COLUMN username_key TEXT NOT NULL DEFAULT ''")
+        # SQLite NOCASE folds ASCII only. Use Unicode casefold for account identity.
+        seen_username_keys: set[str] = set()
+        for account_row in conn.execute("SELECT id, username FROM accounts ORDER BY created_at, id").fetchall():
+            username_key = str(account_row["username"]).casefold()
+            if username_key in seen_username_keys:
+                # Keep legacy databases bootable if an older version admitted a collision.
+                username_key = "legacy-collision:" + str(account_row["id"])
+            seen_username_keys.add(username_key)
+            conn.execute("UPDATE accounts SET username_key=? WHERE id=?", (username_key, account_row["id"]))
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_username_key ON accounts(username_key)")
         if "display_name" not in account_columns:
             conn.execute("ALTER TABLE accounts ADD COLUMN display_name TEXT NOT NULL DEFAULT ''")
         conn.execute("UPDATE accounts SET display_name=username WHERE display_name='' OR display_name IS NULL")
@@ -1157,8 +1170,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             with db() as conn:
                 conn.execute(
-                    "INSERT INTO accounts(id, username, display_name, password_salt, password_hash, created_at) VALUES(?,?,?,?,?,?)",
-                    (account_id, username, display_name, salt, password_hash, now_iso()),
+                    "INSERT INTO accounts(id, username, username_key, display_name, password_salt, password_hash, created_at) VALUES(?,?,?,?,?,?,?)",
+                    (account_id, username, username.casefold(), display_name, salt, password_hash, now_iso()),
                 )
         except sqlite3.IntegrityError:
             self._error(409, "That username is already registered.")
@@ -1178,8 +1191,8 @@ class Handler(BaseHTTPRequestHandler):
         password = str(body.get("password") or "")
         with db() as conn:
             account = conn.execute(
-                "SELECT id, username, display_name, password_salt, password_hash FROM accounts WHERE username=? COLLATE NOCASE",
-                (username,),
+                "SELECT id, username, display_name, password_salt, password_hash FROM accounts WHERE username_key=?",
+                (username.casefold(),)
             ).fetchone()
         # Perform a KDF even for unknown usernames to reduce timing-based enumeration.
         salt = account["password_salt"] if account else b"\x00" * 16
@@ -1585,7 +1598,7 @@ class Handler(BaseHTTPRequestHandler):
             if not device["master_authorized"] and (actor is None or actor["role"] not in ("owner", "admin")):
                 self._error(403, "only server owners/admins or a master-key device can manage private-channel access")
                 return
-            target = conn.execute("SELECT id FROM accounts WHERE username=? COLLATE NOCASE", (username,)).fetchone()
+            target = conn.execute("SELECT id FROM accounts WHERE username_key=?", (username.casefold(),)).fetchone()
             if target is None:
                 self._error(404, "user not found")
                 return
@@ -1628,7 +1641,7 @@ class Handler(BaseHTTPRequestHandler):
             targets = []
             for username in requested:
                 target = conn.execute(
-                    "SELECT id, username FROM accounts WHERE username=? COLLATE NOCASE", (username,)
+                    "SELECT id, username FROM accounts WHERE username_key=?", (username.casefold(),)
                 ).fetchone()
                 if target is None:
                     self._error(404, f"user not found: {username}")
@@ -1690,7 +1703,7 @@ class Handler(BaseHTTPRequestHandler):
             if actor is None or actor["role"] != "owner":
                 self._error(403, "only the server owner can change roles")
                 return
-            target = conn.execute("SELECT id FROM accounts WHERE username=? COLLATE NOCASE", (username,)).fetchone()
+            target = conn.execute("SELECT id FROM accounts WHERE username_key=?", (username.casefold(),)).fetchone()
             if target is None:
                 self._error(404, "user not found")
                 return
