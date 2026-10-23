@@ -107,7 +107,7 @@ The first run creates:
 - `server/data/master-key.txt` - long-lived device enrollment key
 - `server/data/pairing-code.txt` - the current short pairing code
 
-When using the graphical manager, the persistent vault phrase and pairing code are shown locally in the manager after startup. The manager does not write them to its diagnostic log. When starting from a console, the host prints:
+When using the graphical manager, the persistent vault phrase, pairing code, and master key are shown locally after the host starts, each with its own Copy button. The manager refreshes credential files during startup and uses the Windows clipboard directly when available. Secret values are not written to its diagnostic log. When starting from a console, the host prints:
 
 ```text
 This laptop :  https://127.0.0.1:8443/app/
