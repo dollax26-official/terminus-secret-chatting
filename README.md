@@ -448,3 +448,16 @@ Server owner/admin permissions are checked by the host for channel creation and 
 - Direct messages, group DMs, text channels, reactions, replies, pins, editing/deleting messages, voice notes, and one-to-one audio/video calls are implemented in the shared web client. Call signaling is encrypted by the vault in this build; voice/video media uses WebRTC's transport encryption by browser default. Screen sharing depends on browser/Electron support and user permission; Android WebView may not expose screen capture on every device.
 - This is not yet feature-parity with Discord: group voice calls, push-to-talk, server discovery, robust presence/offline delivery, and reliable public-address discovery across changing mobile networks are not guaranteed.
 - RAM usage depends on active calls, video resolution, browser engine, and other running applications. The project does not enforce a hard 4–5 GB process limit; treat any estimate as a target, not a measured guarantee.
+
+
+## Signup and scrolling regression checks
+
+The shared web client validates a saved account session before hiding the sign-in/sign-up form. If a saved token is expired or invalid, the client clears only that stale local session and restores the account form. The server exposes `GET /api/accounts/session` for this check; it returns account identity only and never password material.
+
+Run the account endpoint regression test from the repository root with Python:
+
+```powershell
+python tools\test_accounts.py
+```
+
+The test covers registration, duplicate usernames, login, saved-session validation, and invalid-session rejection. The shared CSS also explicitly bounds the chat viewport and keeps messages, navigation, the account screen, and long dialogs scrollable on desktop and mobile.
