@@ -354,6 +354,20 @@ public class MainActivity extends Activity {
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onPermissionRequest(PermissionRequest request) {
+                // Never grant microphone/camera access to a page other than the configured host.
+                // WebView permission requests can originate from embedded or navigated content.
+                Uri requestedOrigin = request.getOrigin();
+                Uri configuredOrigin = Uri.parse(serverUrl);
+                boolean trustedOrigin = requestedOrigin != null
+                        && "https".equalsIgnoreCase(requestedOrigin.getScheme())
+                        && "https".equalsIgnoreCase(configuredOrigin.getScheme())
+                        && requestedOrigin.getHost() != null
+                        && requestedOrigin.getHost().equalsIgnoreCase(configuredOrigin.getHost())
+                        && effectivePort(requestedOrigin) == effectivePort(configuredOrigin);
+                if (!trustedOrigin) {
+                    request.deny();
+                    return;
+                }
                 runOnUiThread(() -> {
                     java.util.ArrayList<String> needed = new java.util.ArrayList<>();
                     java.util.ArrayList<String> allowed = new java.util.ArrayList<>();
@@ -409,6 +423,11 @@ public class MainActivity extends Activity {
             NotificationManager manager = getSystemService(NotificationManager.class);
             if (manager != null) manager.createNotificationChannel(channel);
         }
+    }
+
+    private static int effectivePort(Uri uri) {
+        int port = uri.getPort();
+        return port >= 0 ? port : ("https".equalsIgnoreCase(uri.getScheme()) ? 443 : 80);
     }
 
     private final class NativeNotifications {
