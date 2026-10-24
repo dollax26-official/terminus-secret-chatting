@@ -37,6 +37,13 @@ assert "window.TerminusNative.copyText(text)" in APP
 assert "function updateJump()" in APP
 assert "ui.messages.scrollTop = previousTop" in APP
 assert "@JavascriptInterface\n        public boolean copyText(String value)" in ANDROID
+# WebView must not grant mic/camera permission to an untrusted origin.
+assert "Uri requestedOrigin = request.getOrigin();" in ANDROID
+assert "boolean trustedOrigin = requestedOrigin != null" in ANDROID
+assert '"https".equalsIgnoreCase(requestedOrigin.getScheme())' in ANDROID
+assert "effectivePort(requestedOrigin) == effectivePort(configuredOrigin)" in ANDROID
+assert "if (!trustedOrigin)" in ANDROID
+assert "private static int effectivePort(Uri uri)" in ANDROID
 assert "ClipboardManager clipboard" in ANDROID
 assert "Each file is independent and credentials are refreshed while the host" in SETTINGS
 assert 'read_secret("master-key.txt")' in SETTINGS
