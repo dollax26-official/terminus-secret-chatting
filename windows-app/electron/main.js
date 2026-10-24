@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, dialog, shell } = require("electron");
+const { app, BrowserWindow, Menu, dialog, shell, session } = require("electron");
 const crypto = require("crypto");
 const fs = require("fs");
 const http = require("http");
@@ -414,6 +414,17 @@ function createWindow(startPath) {
 }
 
 async function main() {
+  // Only the bundled client served from our loopback proxy may request media.
+  // This is required for voice/video calls in the packaged Windows app; without
+  // an explicit handler Electron may deny getUserMedia even after user consent.
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    const requestingUrl = details && details.requestingUrl;
+    const trustedClient = Boolean(webContents && !webContents.isDestroyed() && isLocal(requestingUrl));
+    const allowed = trustedClient && (permission === "media" || permission === "display-capture");
+    if (!allowed) log(`denied permission ${permission} from ${requestingUrl || "unknown origin"}`);
+    callback(allowed);
+  });
+
   if (!app.requestSingleInstanceLock()) {
     app.quit();
     return;
