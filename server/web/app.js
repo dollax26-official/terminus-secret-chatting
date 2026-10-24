@@ -2394,7 +2394,7 @@
       await pc.setLocalDescription(offer);
       await sendCallSignal(room.id, "offer", { description: { type: pc.localDescription.type, sdp: pc.localDescription.sdp }, mode });
       ui.screenCallBtn.disabled = false;
-      ui.shareCallBtn.disabled = false;
+      ui.shareCallBtn.disabled = !navigator.mediaDevices?.getDisplayMedia;
     } catch (err) {
       await endCall(false);
       toast(err.message || "Could not start call. Check microphone/camera permissions.", "error");
@@ -2431,7 +2431,7 @@
         await pc.setLocalDescription(answer);
         await sendCallSignal(roomId, "answer", { description: { type: pc.localDescription.type, sdp: pc.localDescription.sdp } });
         ui.screenCallBtn.disabled = false;
-        ui.shareCallBtn.disabled = false;
+        ui.shareCallBtn.disabled = !navigator.mediaDevices?.getDisplayMedia;
       } catch (err) {
         await endCall(false);
         toast(err.message || "Could not answer call.", "error");
