@@ -44,6 +44,10 @@ assert '"https".equalsIgnoreCase(requestedOrigin.getScheme())' in ANDROID
 assert "effectivePort(requestedOrigin) == effectivePort(configuredOrigin)" in ANDROID
 assert "if (!trustedOrigin)" in ANDROID
 assert "private static int effectivePort(Uri uri)" in ANDROID
+assert "public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request)" in ANDROID
+assert "if (trustedOrigin) return false;" in ANDROID
+assert "Never load HTTP, other hosts, alternate ports, or custom schemes inside" in ANDROID
+assert "return true;" in ANDROID
 assert "ClipboardManager clipboard" in ANDROID
 assert "Each file is independent and credentials are refreshed while the host" in SETTINGS
 assert 'read_secret("master-key.txt")' in SETTINGS
