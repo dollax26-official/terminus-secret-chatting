@@ -45,13 +45,16 @@ assert "if (!copied) toast(" in APP
 
 print("Reconnect, credential copy, Android notification permission, clipboard fallback, and resource-estimate source checks passed.")
 
-assert '#chatView.app {\n  width: 100%;\n  max-width: 100vw;\n  grid-template-columns: minmax(0, 1fr) 296px;' in (ROOT / "server" / "web" / "styles.css").read_text(encoding="utf-8")
-assert '#chatView.app > .rail {\n  grid-column: 2;' in (ROOT / "server" / "web" / "styles.css").read_text(encoding="utf-8")
 assert 'state.authMethod = "code";' in APP
 assert 'setAuthMethod("code");' in APP
 
 HTML = (ROOT / "server" / "web" / "index.html").read_text(encoding="utf-8")
 CSS = (ROOT / "server" / "web" / "styles.css").read_text(encoding="utf-8")
 assert 'placeholder="007EE4-9B4BA6" maxlength="13"' in HTML
-assert 'grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);' in CSS
-assert '#chatView #roomList' in CSS
+assert "Normalize typed or pasted pairing codes" in APP
+assert 'slice(0, 12)' in APP and 'raw.slice(0, 6)}-${raw.slice(6)' in APP
+assert "Match the optimistic message even if POST already replaced its" in APP
+assert "grid-template-columns: minmax(240px, 288px) minmax(0, 1fr);" in CSS
+assert "#chatView.app > .rail {\n  grid-column: 1;" in CSS
+assert "#chatView.app > .stage {\n  grid-column: 2;" in CSS
+assert "#chatView #roomList" in CSS
