@@ -58,3 +58,19 @@ assert "grid-template-columns: minmax(240px, 288px) minmax(0, 1fr);" in CSS
 assert "#chatView.app > .rail {\n  grid-column: 1;" in CSS
 assert "#chatView.app > .stage {\n  grid-column: 2;" in CSS
 assert "#chatView #roomList" in CSS
+
+# UI and real media-action regression checks.
+assert 'id="settingsBtn"' not in HTML
+assert 'id="settingsDialog"' not in HTML
+assert 'Appearance settings' not in HTML
+assert 'settingsBtn' not in APP and 'settingsDialog' not in APP
+assert "file.size > 60 * 1024" in APP
+assert "new MediaRecorder(stream" in APP
+assert 'sendText("__TS_ATTACHMENT_V1__:"' in APP
+assert 'player.controls = true' in APP
+assert 'new RTCPeerConnection' in APP
+assert '"/api/calls/signal"' in APP
+assert '"/api/calls/poll?after=' in APP
+assert "prefers-reduced-motion: reduce" in CSS
+
+print("Appearance removal, attachment/voice-message rendering, call signaling, and motion accessibility checks passed.")
