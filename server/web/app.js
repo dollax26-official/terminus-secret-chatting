@@ -1938,7 +1938,7 @@
     const file = ui.fileInput.files && ui.fileInput.files[0];
     ui.fileInput.value = "";
     if (!file) return;
-    if (file.size > 40 * 1024) { toast("For this encrypted chat build, attachments must be 40 KB or smaller.", "error"); return; }
+    if (file.size > 60 * 1024) { toast("This encrypted-message transport supports files up to 60 KB. Larger files need the dedicated encrypted upload feature.", "error"); return; }
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const data = bytesToB64(bytes);
@@ -2552,10 +2552,15 @@
         state.voiceRecorder = null;
         state.voiceChunks = [];
         if (!blob.size) return;
-        if (blob.size > 43000) { toast("Voice note is too large; record a shorter one.", "error"); return; }
+        if (blob.size > 43000) { toast("Voice note exceeded the encrypted message size limit. Try a shorter recording.", "error"); return; }
         const data = bytesToB64(new Uint8Array(await blob.arrayBuffer()));
         const ext = blob.type.includes("ogg") ? "ogg" : "webm";
-        await sendText("__TS_ATTACHMENT_V1__:" + JSON.stringify({ name: "voice-message." + ext, type: blob.type || "audio/webm", data }), null);
+        try {
+          await sendText("__TS_ATTACHMENT_V1__:" + JSON.stringify({ name: "voice-message." + ext, type: blob.type || "audio/webm", data }), null);
+          toast("Voice message sent.");
+        } catch (err) {
+          toast(err.message || "Could not send the voice message.", "error");
+        }
       };
       recorder.start(250);
       ui.voiceMessageBtn.classList.add("recording");
