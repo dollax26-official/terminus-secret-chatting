@@ -667,11 +667,17 @@ html, body { min-width: 0; min-height: 0; }
 #chatView.app {
   width: 100%;
   max-width: 100vw;
-  grid-template-columns: minmax(0, 1fr) 296px;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+  grid-template-rows: minmax(0, 1fr);
 }
+#chatView.app > .backdrop { grid-column: 1; grid-row: 1; pointer-events: none; }
 #chatView.app > .rail {
   grid-column: 2;
   grid-row: 1;
+  width: auto;
+  min-width: 0;
+  max-width: none;
   border-right: 0;
   border-left: 1px solid var(--line-soft);
 }
@@ -679,7 +685,8 @@ html, body { min-width: 0; min-height: 0; }
   grid-column: 1;
   grid-row: 1;
   min-width: 0;
-  width: 100%;
+  width: auto;
+  max-width: 100%;
 }
 #chatView .stage-head,
 #chatView .composer,
@@ -760,7 +767,7 @@ html, body { min-width: 0; min-height: 0; }
   margin-bottom: 0;
 }
 @media (max-width: 820px) {
-  #chatView.app { grid-template-columns: minmax(0, 1fr); }
+  #chatView.app { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
   #chatView.app > .stage { grid-column: 1; grid-row: 1; }
   #chatView.app > .rail {
     grid-column: 1;
@@ -787,4 +794,24 @@ html, body { min-width: 0; min-height: 0; }
   #connectView.connect { align-items: start; padding-top: 20px; padding-bottom: 24px; }
   #connectView .brand-lockup { margin-bottom: 16px; }
   #connectView h1 { margin-top: 16px; }
+}
+
+
+/* Keep channel lists and the composer from collapsing in embedded WebViews. */
+#chatView.app > .rail,
+#chatView.app > .stage { overflow: hidden; }
+#chatView .rail-head,
+#chatView .rail-brand,
+#chatView .server-select,
+#chatView .rail-foot { flex-shrink: 0; }
+#chatView #roomList,
+#chatView #dmList,
+#chatView #savedHostList { flex: 1 1 auto; min-height: 48px; }
+#chatView .composer textarea { flex: 1 1 auto; width: 0; min-width: 0; }
+#chatView .composer .attach-btn,
+#chatView .composer .send-btn { flex: 0 0 auto; }
+#codeInput { letter-spacing: .04em; text-transform: uppercase; }
+@media (max-width: 820px) {
+  #chatView.app > .backdrop { grid-column: 1; grid-row: 1; }
+  #chatView.app > .rail { width: min(86vw, 320px); max-width: 320px; min-width: 0; }
 }
