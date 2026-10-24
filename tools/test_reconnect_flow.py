@@ -87,7 +87,7 @@ assert 'sendText("__TS_ATTACHMENT_V1__:"' in APP
 assert 'player.controls = true' in APP
 assert 'new RTCPeerConnection' in APP
 assert '"/api/calls/signal"' in APP
-assert '"/api/calls/poll?after=' in APP
+assert '`/api/calls/poll?after=${cursor}`' in APP
 assert "ui.shareCallBtn.disabled = !navigator.mediaDevices?.getDisplayMedia;" in APP
 assert "prefers-reduced-motion: reduce" in CSS
 
