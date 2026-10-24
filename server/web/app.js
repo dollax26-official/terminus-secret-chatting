@@ -341,11 +341,6 @@
     ui.meName = $("#meName");
     ui.meMeta = $("#meMeta");
     ui.meAvatar = $("#meAvatar");
-    ui.settingsBtn = $("#settingsBtn");
-    ui.settingsDialog = $("#settingsDialog");
-    ui.backgroundColorInput = $("#backgroundColorInput");
-    ui.accentColorInput = $("#accentColorInput");
-    ui.resetAppearanceBtn = $("#resetAppearanceBtn");
     ui.infoDialog = $("#infoDialog");
     ui.infoHost = $("#infoHost");
     ui.infoFingerprint = $("#infoFingerprint");
@@ -448,28 +443,6 @@
     } finally {
       ui.accountBtn.disabled = false;
     }
-  }
-
-  function applyAppearance() {
-    const background = ui.backgroundColorInput.value || "#06090e";
-    const accent = ui.accentColorInput.value || "#3ee0c5";
-    document.documentElement.style.setProperty("--bg", background);
-    document.documentElement.style.setProperty("--bg-2", background);
-    document.documentElement.style.setProperty("--accent", accent);
-    document.documentElement.style.setProperty("--accent-soft", accent + "20");
-    document.documentElement.style.setProperty("--accent-line", accent + "55");
-    try {
-      localStorage.setItem("ts.appearance", JSON.stringify({ background, accent }));
-    } catch (_) {}
-  }
-
-  function openSettings() {
-    let saved = {};
-    try { saved = JSON.parse(localStorage.getItem("ts.appearance") || "{}"); } catch (_) {}
-    ui.backgroundColorInput.value = saved.background || "#06090e";
-    ui.accentColorInput.value = saved.accent || "#3ee0c5";
-    applyAppearance();
-    ui.settingsDialog.showModal();
   }
 
   function bindEvents() {
@@ -617,14 +590,6 @@
       setTimeout(() => ui.roomNameInput.focus(), 40);
     });
     $("#infoBtn").addEventListener("click", openInfo);
-    ui.settingsBtn.addEventListener("click", openSettings);
-    ui.backgroundColorInput.addEventListener("input", applyAppearance);
-    ui.accentColorInput.addEventListener("input", applyAppearance);
-    ui.resetAppearanceBtn.addEventListener("click", () => {
-      ui.backgroundColorInput.value = "#06090e";
-      ui.accentColorInput.value = "#3ee0c5";
-      applyAppearance();
-    });
     $("#lockBtn").addEventListener("click", lockAndForget);
     ui.copyFingerprintBtn.addEventListener("click", copyFingerprint);
     ui.notifyBtn.addEventListener("click", enableNotifications);
@@ -680,13 +645,6 @@
     window.addEventListener("beforeunload", () => {
       state.stopped = true;
     });
-
-    try {
-      const savedAppearance = JSON.parse(localStorage.getItem("ts.appearance") || "{}");
-      document.documentElement.style.setProperty("--bg", savedAppearance.background || "#06090e");
-      document.documentElement.style.setProperty("--bg-2", savedAppearance.background || "#06090e");
-      document.documentElement.style.setProperty("--accent", savedAppearance.accent || "#3ee0c5");
-    } catch (_) {}
 
     if ("serviceWorker" in navigator && location.protocol === "https:") {
       navigator.serviceWorker.register("sw.js", { scope: "./" }).catch(() => {});
