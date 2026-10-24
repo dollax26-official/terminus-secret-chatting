@@ -49,3 +49,9 @@ assert '#chatView.app {\n  width: 100%;\n  max-width: 100vw;\n  grid-template-co
 assert '#chatView.app > .rail {\n  grid-column: 2;' in (ROOT / "server" / "web" / "styles.css").read_text(encoding="utf-8")
 assert 'state.authMethod = "code";' in APP
 assert 'setAuthMethod("code");' in APP
+
+HTML = (ROOT / "server" / "web" / "index.html").read_text(encoding="utf-8")
+CSS = (ROOT / "server" / "web" / "styles.css").read_text(encoding="utf-8")
+assert 'placeholder="007EE4-9B4BA6" maxlength="13"' in HTML
+assert 'grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);' in CSS
+assert '#chatView #roomList' in CSS
