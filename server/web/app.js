@@ -508,6 +508,16 @@
     ui.accountForm.addEventListener("submit", onAccountSubmit);
     ui.accountModeBtn.addEventListener("click", toggleAccountMode);
     ui.connectForm.addEventListener("submit", onConnect);
+    // Normalize typed or pasted pairing codes to the host's 6-6 format.
+    ui.codeInput.addEventListener("input", () => {
+      const raw = ui.codeInput.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12);
+      const formatted = raw.length > 6 ? `${raw.slice(0, 6)}-${raw.slice(6)}` : raw;
+      if (ui.codeInput.value !== formatted) {
+        const end = formatted.length;
+        ui.codeInput.value = formatted;
+        try { ui.codeInput.setSelectionRange(end, end); } catch (_) {}
+      }
+    });
     ui.revealBtn.addEventListener("click", () => {
       const show = ui.passInput.type === "password";
       ui.passInput.type = show ? "text" : "password";
@@ -927,13 +937,17 @@
       // Avoid scanning the full local history for every other user's message.
       if (row.device_id === state.deviceId) {
         const local = state.messages.find(
-          (m) => m.client_msg_id === row.client_msg_id && String(m.id).startsWith("tmp-")
+          (m) => m.client_msg_id === row.client_msg_id && m.room_id === row.room_id
         );
         if (local) {
+          // Match the optimistic message even if POST already replaced its
+          // temporary ID; otherwise the next sync inserts a duplicate.
           local.id = row.id;
           local.created_at = row.created_at;
           local.pending = false;
           local.failed = false;
+          local.pinned = Boolean(row.pinned);
+          local.edited_at = row.edited_at || local.edited_at;
           if (local.room_id === state.currentRoom) updateMessageNode(local);
           continue;
         }
