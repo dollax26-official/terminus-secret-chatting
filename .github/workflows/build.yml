@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   server-tests:
@@ -201,3 +201,47 @@ jobs:
             dist/TerminusSecretsHost.exe
           if-no-files-found: error
           retention-days: 14
+
+  publish-release:
+    name: Publish downloadable apps to GitHub Releases
+    runs-on: ubuntu-latest
+    needs:
+      - server-tests
+      - windows-app-build
+      - android-app-build
+      - windows-source-check
+      - host-manager-build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+    steps:
+      - name: Download Windows client
+        uses: actions/download-artifact@v4
+        with:
+          name: TerminusSecrets-Windows
+          path: release-assets/windows-client
+      - name: Download Android APK
+        uses: actions/download-artifact@v4
+        with:
+          name: TerminusSecrets-Android-APK
+          path: release-assets/android
+      - name: Download Windows host manager
+        uses: actions/download-artifact@v4
+        with:
+          name: TerminusSecrets-Host-Manager-Windows
+          path: release-assets/windows-host
+      - name: Publish apps as a GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Terminus Secrets build ${{ github.run_number }}
+          prerelease: true
+          make_latest: false
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            release-assets/windows-client/TerminusSecrets.exe
+            release-assets/android/TerminusSecrets.apk
+            release-assets/android/SIGNING-NOTE.txt
+            release-assets/windows-host/TerminusSecretsHost.exe
+            release-assets/windows-host/TerminusSecretsHostManager.exe
