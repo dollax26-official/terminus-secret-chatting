@@ -125,6 +125,7 @@ def main():
             assert exc.code == 409, exc.code
 
         code = (DATA / "pairing-code.txt").read_text().strip()
+        master_key = (DATA / "master-key.txt").read_text().strip()
         vault_phrase = (DATA / "vault-passphrase.txt").read_text().strip()
         assert len(code) == 13, code
         assert len(vault_phrase) >= 8, "vault phrase was not initialized"
@@ -142,7 +143,8 @@ def main():
             assert exc.code == 403, exc.code
 
         _, _, body = request(
-            "/api/pair", method="POST", payload={"code": code, "device_name": "Windows desk"}
+            "/api/pair", method="POST",
+            payload={"code": code, "master_key": master_key, "device_name": "Windows desk"},
         )
         device_a = json.loads(body)
         assert device_a["token"].startswith("ts_")
@@ -185,8 +187,21 @@ def main():
         empty = get_json(f"/api/sync?after={sync['last_id']}&wait=0", token=device_b["token"])
         assert empty["messages"] == []
 
-        # Exercise multi-server channels, private membership, roles, DMs, and server management.
+        # A regular account without a master-key-paired device must not create servers.
         account1_token = ACCOUNT_TOKEN
+        ACCOUNT_TOKEN = same_display["account_token"]
+        try:
+            request(
+                "/api/servers/create", method="POST",
+                payload={"name": "Unauthorized Test Server", "description": "must be denied"},
+            )
+            raise AssertionError("server creation without master-key authorization was accepted")
+        except urllib.error.HTTPError as exc:
+            assert exc.code == 403, exc.code
+        finally:
+            ACCOUNT_TOKEN = account1_token
+
+        # Exercise multi-server channels, private membership, roles, DMs, and server management.
         _, _, server_body = request(
             "/api/servers/create", method="POST",
             payload={"name": "Protocol Test Server", "description": "smoke test"},
