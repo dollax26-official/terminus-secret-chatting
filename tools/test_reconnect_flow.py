@@ -4,6 +4,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 APP = (ROOT / "server" / "web" / "app.js").read_text(encoding="utf-8")
 ANDROID = (ROOT / "android-app" / "app" / "src" / "main" / "java" / "com" / "terminus" / "secrets" / "MainActivity.java").read_text(encoding="utf-8")
+WINDOWS = (ROOT / "windows-app" / "electron" / "main.js").read_text(encoding="utf-8")
 SETTINGS = (ROOT / "server" / "settings_app.py").read_text(encoding="utf-8")
 
 reconnect_start = APP.index('if (params.get("tsReconnect") === "1")')
@@ -43,6 +44,11 @@ assert "boolean trustedOrigin = requestedOrigin != null" in ANDROID
 assert '"https".equalsIgnoreCase(requestedOrigin.getScheme())' in ANDROID
 assert "effectivePort(requestedOrigin) == effectivePort(configuredOrigin)" in ANDROID
 assert "if (!trustedOrigin)" in ANDROID
+# Windows Electron must explicitly grant media only to the bundled loopback client.
+assert "session.defaultSession.setPermissionRequestHandler" in WINDOWS
+assert "const trustedClient = Boolean(webContents && !webContents.isDestroyed() && isLocal(requestingUrl));" in WINDOWS
+assert 'permission === "media" || permission === "display-capture"' in WINDOWS
+assert "callback(allowed);" in WINDOWS
 assert "private static int effectivePort(Uri uri)" in ANDROID
 assert "public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request)" in ANDROID
 assert "if (trustedOrigin) return false;" in ANDROID
