@@ -715,15 +715,25 @@ public class MainActivity extends Activity {
         @Override
         public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
             Uri uri = request.getUrl();
-            String host = Uri.parse(activity.serverUrl).getHost();
-            if (uri.getHost() != null && !uri.getHost().equalsIgnoreCase(host)) {
+            Uri configured = Uri.parse(activity.serverUrl);
+            boolean trustedOrigin = uri != null
+                    && "https".equalsIgnoreCase(uri.getScheme())
+                    && "https".equalsIgnoreCase(configured.getScheme())
+                    && uri.getHost() != null
+                    && uri.getHost().equalsIgnoreCase(configured.getHost())
+                    && effectivePort(uri) == effectivePort(configured);
+            if (trustedOrigin) return false;
+
+            // Never load HTTP, other hosts, alternate ports, or custom schemes inside
+            // the privileged WebView. Open ordinary web links externally only.
+            if (uri != null && ("https".equalsIgnoreCase(uri.getScheme())
+                    || "http".equalsIgnoreCase(uri.getScheme()))) {
                 try {
                     activity.startActivity(new Intent(Intent.ACTION_VIEW, uri));
                 } catch (ActivityNotFoundException ignored) {
                 }
-                return true;
             }
-            return false;
+            return true;
         }
 
         @Override
