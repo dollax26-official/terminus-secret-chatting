@@ -1451,6 +1451,17 @@ class Handler(BaseHTTPRequestHandler):
         if account_id is None:
             self._error(401, "sign in first")
             return
+        # A normal account session is not enough to create a server. Require
+        # at least one currently active device for this account that was paired
+        # using the host master key. This is enforced here, not in the UI.
+        with db() as conn:
+            authorized = conn.execute(
+                "SELECT 1 FROM devices WHERE account_id=? AND master_authorized=1 AND revoked=0 LIMIT 1",
+                (account_id,),
+            ).fetchone()
+        if authorized is None:
+            self._error(403, "only a master-key-authorized account can create servers")
+            return
         name = " ".join(str(body.get("name") or "").split())[:48]
         description = " ".join(str(body.get("description") or "").split())[:160]
         if not name:
@@ -1724,6 +1735,16 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json(200, {"ok": True, "username": username, "role": role})
 
     def _create_room(self, device: sqlite3.Row, body: dict) -> None:
+        # Channel creation is reserved for accounts with an active device
+        # paired using the host master key; role checks below remain in force.
+        with db() as conn:
+            authorized = conn.execute(
+                "SELECT 1 FROM devices WHERE account_id=? AND master_authorized=1 AND revoked=0 LIMIT 1",
+                (device["account_id"],),
+            ).fetchone()
+        if authorized is None:
+            self._error(403, "only a master-key-authorized account can create channels")
+            return
         name = " ".join(str(body.get("name") or "").split())[:32]
         description = " ".join(str(body.get("description") or "").split())[:120]
         category = " ".join(str(body.get("category") or "").split())[:32]
