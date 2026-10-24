@@ -1122,6 +1122,24 @@
   }
 
   /* ---------------------------------------------------------------- messages */
+  function showImagePreview(src, label) {
+    const dialog = el("dialog", "image-preview-dialog");
+    dialog.setAttribute("aria-label", label || "Image preview");
+    const close = el("button", "image-preview-close", "×");
+    close.type = "button";
+    close.setAttribute("aria-label", "Close image preview");
+    const image = el("img", "image-preview-full");
+    image.src = src;
+    image.alt = label || "Image preview";
+    close.addEventListener("click", () => dialog.close());
+    dialog.addEventListener("click", (event) => { if (event.target === dialog) dialog.close(); });
+    dialog.addEventListener("close", () => dialog.remove(), { once: true });
+    dialog.append(close, image);
+    document.body.append(dialog);
+    if (typeof dialog.showModal === "function") dialog.showModal();
+    else { dialog.setAttribute("open", ""); }
+  }
+
   function renderMessages() {
     const oldDistance = ui.messages.scrollHeight - ui.messages.scrollTop - ui.messages.clientHeight;
     const wasNearBottom = oldDistance < 150;
@@ -1212,19 +1230,37 @@
       try {
         const file = JSON.parse(message.text.slice("__TS_ATTACHMENT_V1__:".length));
         const dataUrl = `data:${file.type || "application/octet-stream"};base64,${file.data}`;
-        if (String(file.type || "").startsWith("audio/")) {
+        const type = String(file.type || "").toLowerCase();
+        if (type.startsWith("audio/")) {
           const player = el("audio", "voice-player");
           player.controls = true;
-          player.preload = "none";
+          player.preload = "metadata";
           player.src = dataUrl;
+          player.setAttribute("aria-label", file.name || "Voice message");
           bubble.append(player);
-          bubble.append(el("div", "voice-label", file.name || "Voice message"));
+          const meta = el("div", "voice-label", file.name || "Voice message");
+          bubble.append(meta);
+        } else if (type.startsWith("image/")) {
+          const preview = el("button", "image-message-preview");
+          preview.type = "button";
+          preview.title = "Open image preview";
+          preview.setAttribute("aria-label", "Open image preview");
+          const image = el("img", "message-image");
+          image.src = dataUrl;
+          image.alt = file.name || "Shared image";
+          image.loading = "lazy";
+          preview.append(image);
+          preview.addEventListener("click", () => showImagePreview(dataUrl, file.name || "Image"));
+          bubble.append(preview);
+          const caption = el("div", "image-label", file.name || "Image");
+          bubble.append(caption);
+        } else {
+          const link = el("a", "attachment-link", `📎 ${file.name || "Open attachment"}`);
+          link.href = dataUrl;
+          link.target = "_blank";
+          link.rel = "noopener";
+          bubble.append(link);
         }
-        const link = el("a", "attachment-link", `📎 Download ${file.name || "attachment"}`);
-        link.href = dataUrl;
-        link.download = file.name || "attachment";
-        link.rel = "noopener";
-        bubble.append(link);
       } catch (_) { fillText(bubble, "Attachment could not be displayed."); }
     } else {
       fillText(bubble, message.text || "");
