@@ -70,6 +70,9 @@ class HostSettingsApp:
         self.concurrent_media = tk.IntVar(value=1)
         self.status = tk.StringVar(value="Ready to configure")
         self.credentials = tk.StringVar(value="Not started yet — start the server to load its saved credentials.")
+        self.vault_value = tk.StringVar()
+        self.master_value = tk.StringVar()
+        self.pairing_value = tk.StringVar()
         self.vault_phrase = ""
         self.pairing_code = ""
         self.vars = {name: tk.BooleanVar(value=DEFAULTS[name]) for name in DEFAULTS}
@@ -180,8 +183,21 @@ class HostSettingsApp:
         secrets_panel = ttk.Frame(outer, style="Panel.TFrame", padding=14)
         secrets_panel.pack(fill="x", pady=(0, 12))
         ttk.Label(secrets_panel, text="PERSISTENT HOST CREDENTIALS", style="PanelTitle.TLabel").pack(anchor="w", pady=(0, 6))
-        ttk.Label(secrets_panel, textvariable=self.credentials, style="PanelMuted.TLabel", wraplength=640).pack(anchor="w")
-        ttk.Label(secrets_panel, text="Keep these values private. They stay on this host and are not sent to clients until you share them.", style="Muted.TLabel", wraplength=620).pack(anchor="w", pady=(5, 0))
+        for label, value_var in (
+            ("Vault phrase", self.vault_value),
+            ("Master key", self.master_value),
+            ("Pairing code", self.pairing_value),
+        ):
+            row = ttk.Frame(secrets_panel, style="Panel.TFrame")
+            row.pack(fill="x", pady=2)
+            ttk.Label(row, text=label, width=13, style="PanelMuted.TLabel").pack(side="left")
+            entry = ttk.Entry(row, textvariable=value_var, state="readonly", font=("Consolas", 9))
+            entry.pack(side="left", fill="x", expand=True, padx=(4, 6))
+            ttk.Button(row, text="Copy", command=lambda v=value_var: self._copy_secret(v)).pack(side="right")
+        actions = ttk.Frame(secrets_panel, style="Panel.TFrame")
+        actions.pack(fill="x", pady=(8, 0))
+        ttk.Button(actions, text="Copy all credentials", command=self._copy_all_secrets).pack(side="left")
+        ttk.Label(secrets_panel, text="Select any field and press Ctrl+C, or use its Copy button. Keep these values private; they stay on this host until you share them.", style="Muted.TLabel", wraplength=620).pack(anchor="w", pady=(6, 0))
 
         options = ttk.Frame(outer, style="Panel.TFrame", padding=14)
         options.pack(fill="x", pady=(0, 12))
@@ -250,6 +266,34 @@ class HostSettingsApp:
             widget.bind(sequence, self._on_mousewheel, add="+")
         for child in widget.winfo_children():
             self._bind_scroll_events(child)
+
+    def _copy_secret(self, value_var: tk.StringVar) -> None:
+        value = (value_var.get() or "").strip()
+        if not value:
+            messagebox.showwarning("Unavailable", "Start the server once so this credential exists.")
+            return
+        self.root.clipboard_clear()
+        self.root.clipboard_append(value)
+        self.root.update_idletasks()
+        self.status.set("Credential copied to clipboard")
+
+    def _copy_all_secrets(self) -> None:
+        lines = []
+        for label, value_var in (
+            ("Vault phrase", self.vault_value),
+            ("Master key", self.master_value),
+            ("Pairing code", self.pairing_value),
+        ):
+            value = (value_var.get() or "").strip()
+            if value:
+                lines.append(f"{label}: {value}")
+        if not lines:
+            messagebox.showwarning("Unavailable", "Start the server once so the credentials exist.")
+            return
+        self.root.clipboard_clear()
+        self.root.clipboard_append("\n".join(lines))
+        self.root.update_idletasks()
+        self.status.set("All credentials copied to clipboard")
 
     def _copy_public_text(self, value: str) -> None:
         value = (value or "").strip()
@@ -395,10 +439,10 @@ class HostSettingsApp:
 
     def _load_credentials(self) -> None:
         if not (DATA / "vault-passphrase.txt").exists():
-            self.credentials.set(
-                "Start the server once to generate the vault phrase, master key, and pairing code.\n"
-                "They are stored only in the data folder next to this app."
-            )
+            self.vault_value.set("")
+            self.master_value.set("")
+            self.pairing_value.set("")
+            self.credentials.set("Start the server once to generate the credentials.")
             return
         try:
             vault = (DATA / "vault-passphrase.txt").read_text(encoding="utf-8").strip()
@@ -407,11 +451,10 @@ class HostSettingsApp:
             master = master_file.read_text(encoding="utf-8").strip() if master_file.exists() else ""
             self.vault_phrase = vault
             self.pairing_code = pairing
-            lines = [f"Vault phrase: {vault}"]
-            if master:
-                lines.append(f"Master key: {master}")
-            lines.append(f"Pairing code: {pairing}")
-            self.credentials.set("\n".join(lines))
+            self.vault_value.set(vault)
+            self.master_value.set(master)
+            self.pairing_value.set(pairing)
+            self.credentials.set("\n".join(filter(None, [f"Vault phrase: {vault}", f"Master key: {master}" if master else "", f"Pairing code: {pairing}"])))
         except OSError:
             self.credentials.set("Credentials are being initialized. Wait a moment, then check again.")
 
