@@ -1117,7 +1117,11 @@
     ui.roomTitle.textContent = `${isDm ? "@" : "#"} ${room.name || "general"}`;
     const count = state.devices.length || 1;
     const description = isDm ? "Direct message" : (server ? server.name : (room.description || "Server channel"));
-    ui.roomMeta.textContent = `${description} · ${count} device${count === 1 ? "" : "s"} · end-to-end encrypted`;
+    ui.roomMeta.replaceChildren(
+      document.createTextNode(`${description} · ${count} device${count === 1 ? "" : "s"} · `),
+      Object.assign(document.createElement("span"), { className: "e2e-long", textContent: "end-to-end encrypted" }),
+      Object.assign(document.createElement("span"), { className: "e2e-short", textContent: "E2E encrypted" })
+    );
     ui.input.placeholder = `Message ${isDm ? "@" : "#"}${room.name || "general"}`;
   }
 
@@ -2619,7 +2623,6 @@
       state.features = { ...state.features, ...(config.features || {}) };
       const controls = [
         [ui.attachBtn, state.features.photos],
-        [ui.fileInput, state.features.photos],
         [ui.voiceMessageBtn, state.features.voice_messages],
         [ui.audioCallBtn, state.features.voice_calls],
         [ui.videoCallBtn, state.features.video_calls],
@@ -2627,6 +2630,7 @@
         [ui.shareCallBtn, state.features.screen_sharing],
       ];
       for (const [control, enabled] of controls) if (control) control.hidden = !enabled;
+      if (ui.fileInput) ui.fileInput.hidden = true;
     } catch (_) {
       // Older hosts remain compatible: leave the legacy controls visible.
     }
