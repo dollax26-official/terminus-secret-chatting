@@ -1118,7 +1118,9 @@
     const count = state.devices.length || 1;
     const description = isDm ? "Direct message" : (server ? server.name : (room.description || "Server channel"));
     ui.roomMeta.replaceChildren(
-      document.createTextNode(`${description} · ${count} device${count === 1 ? "" : "s"} · `),
+      document.createTextNode(description),
+      Object.assign(document.createElement("span"), { className: "meta-devices", textContent: ` · ${count} device${count === 1 ? "" : "s"}` }),
+      document.createTextNode(" · "),
       Object.assign(document.createElement("span"), { className: "e2e-long", textContent: "end-to-end encrypted" }),
       Object.assign(document.createElement("span"), { className: "e2e-short", textContent: "E2E encrypted" })
     );

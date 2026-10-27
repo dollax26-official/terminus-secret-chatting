@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+from contextlib import contextmanager
 import hashlib
 import hmac
 import json
@@ -37,14 +38,17 @@ import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Iterator
 from urllib.parse import parse_qs, urlparse
 
 APP_NAME = "Terminus Secrets"
 APP_VERSION = "1.0.0"
+# In a PyInstaller build, serve bundled web assets from the extraction directory but
+# keep the database, TLS identity, and credentials beside the executable.
 if getattr(sys, "frozen", False):
     BASE_DIR = Path(sys.executable).resolve().parent
-    BUNDLE_DIR = Path(getattr(sys, "_MEIPASS", BASE_DIR))
-    WEB_DIR = BUNDLE_DIR / "web"
+    RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", BASE_DIR))
+    WEB_DIR = RESOURCE_DIR / "web"
 else:
     BASE_DIR = Path(__file__).resolve().parent
     WEB_DIR = BASE_DIR / "web"
@@ -109,16 +113,25 @@ def sha256_hex(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def db() -> sqlite3.Connection:
-    # WAL is enabled once during database initialization, not on every request.
-    # Re-running journal_mode=WAL for every short-lived connection adds avoidable
-    # locking and filesystem work to the hot message/sync path.
+@contextmanager
+def db() -> Iterator[sqlite3.Connection]:
+    # sqlite3.Connection's built-in context manager commits/rolls back but does
+    # not close the connection. This app opens one connection per operation, so
+    # close it explicitly to avoid accumulating file handles and locking the DB
+    # (especially on Windows).
     conn = sqlite3.connect(DB_PATH, timeout=5)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA busy_timeout=5000")
     conn.execute("PRAGMA foreign_keys=ON")
     conn.execute("PRAGMA synchronous=NORMAL")
-    return conn
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def get_meta(key: str, default: str = "") -> str:
@@ -238,6 +251,7 @@ def init_db(passphrase: str) -> None:
             CREATE TABLE IF NOT EXISTS accounts (
                 id TEXT PRIMARY KEY,
                 username TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                username_key TEXT NOT NULL DEFAULT '',
                 display_name TEXT NOT NULL DEFAULT '',
                 password_salt BLOB NOT NULL,
                 password_hash BLOB NOT NULL,
@@ -324,6 +338,18 @@ def init_db(passphrase: str) -> None:
             """
         )
         account_columns = [row["name"] for row in conn.execute("PRAGMA table_info(accounts)")]
+        if "username_key" not in account_columns:
+            conn.execute("ALTER TABLE accounts ADD COLUMN username_key TEXT NOT NULL DEFAULT ''")
+        # SQLite NOCASE folds ASCII only. Use Unicode casefold for account identity.
+        seen_username_keys: set[str] = set()
+        for account_row in conn.execute("SELECT id, username FROM accounts ORDER BY created_at, id").fetchall():
+            username_key = str(account_row["username"]).casefold()
+            if username_key in seen_username_keys:
+                # Keep legacy databases bootable if an older version admitted a collision.
+                username_key = "legacy-collision:" + str(account_row["id"])
+            seen_username_keys.add(username_key)
+            conn.execute("UPDATE accounts SET username_key=? WHERE id=?", (username_key, account_row["id"]))
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_username_key ON accounts(username_key)")
         if "display_name" not in account_columns:
             conn.execute("ALTER TABLE accounts ADD COLUMN display_name TEXT NOT NULL DEFAULT ''")
         conn.execute("UPDATE accounts SET display_name=username WHERE display_name='' OR display_name IS NULL")
@@ -341,6 +367,8 @@ def init_db(passphrase: str) -> None:
         device_columns = [row["name"] for row in conn.execute("PRAGMA table_info(devices)")]
         if "account_id" not in device_columns:
             conn.execute("ALTER TABLE devices ADD COLUMN account_id TEXT REFERENCES accounts(id)")
+        if "master_authorized" not in device_columns:
+            conn.execute("ALTER TABLE devices ADD COLUMN master_authorized INTEGER NOT NULL DEFAULT 0")
 
         room_columns = [row["name"] for row in conn.execute("PRAGMA table_info(rooms)")]
         if "server_id" not in room_columns:
@@ -532,6 +560,32 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             return
 
+        if path == "/api/accounts/session":
+            # Validate a saved account session before the client hides the sign-in form.
+            token = self.headers.get("X-Account-Token", "").strip()
+            if len(token) < 32:
+                self._error(401, "Sign in again to continue.")
+                return
+            with db() as conn:
+                account = conn.execute(
+                    """SELECT a.id, a.username, a.display_name, s.expires_at
+                       FROM account_sessions s JOIN accounts a ON a.id=s.account_id
+                       WHERE s.token_hash=? AND s.expires_at>?""",
+                    (sha256_hex(token), int(time.time())),
+                ).fetchone()
+            if account is None:
+                self._error(401, "Your account session expired. Sign in again.")
+                return
+            self._send_json(200, {
+                "account": {
+                    "id": account["id"],
+                    "username": account["username"],
+                    "display_name": account["display_name"] or account["username"],
+                },
+                "expires_in": max(0, int(account["expires_at"]) - int(time.time())),
+            })
+            return
+
         if path == "/api/config":
             # Public, non-secret capability flags used by the shared clients.
             self._send_json(200, {"server_name": SERVER_NAME, "features": SERVER_FEATURES})
@@ -701,11 +755,12 @@ class Handler(BaseHTTPRequestHandler):
                                    EXISTS (SELECT 1 FROM room_members rm WHERE rm.room_id=r.id AND rm.account_id=?)
                                    OR EXISTS (SELECT 1 FROM server_members sm WHERE sm.server_id=r.server_id
                                               AND sm.account_id=? AND sm.role IN ('owner','admin'))
+                                   OR ?=1
                                ))
                                ORDER BY r.created_at ASC""",
                             (device["account_id"], device["account_id"], server_id, server_id,
                              device["account_id"], server_id, server_id, server_id, server_id,
-                             device["account_id"], device["account_id"]),
+                             device["account_id"], device["account_id"], int(bool(device["master_authorized"]))),
                         ).fetchall()
                         servers = conn.execute(
                             """SELECT s.id, s.name, s.description, s.invite_code, sm.role
@@ -789,6 +844,7 @@ class Handler(BaseHTTPRequestHandler):
                                 for row in devices
                             ],
                             "you": device["id"],
+                            "host_admin": bool(device["master_authorized"]),
                             "last_id": max([after] + [row["id"] for row in rows]),
                             "has_more": bool(more),
                             "server_time": now_iso(),
@@ -1103,7 +1159,7 @@ class Handler(BaseHTTPRequestHandler):
         password = str(body.get("password") or "")
         display_name = " ".join(str(body.get("display_name") or username).split())[:32] or username
         if not (3 <= len(username) <= 24) or not all(ch.isalnum() or ch in "_-" for ch in username):
-            self._error(400, "Username must be 3–24 characters using letters, numbers, _ or -.")
+            self._error(400, "Username must be 3ΓÇô24 characters using letters, numbers, _ or -.")
             return
         if len(password) < 10 or len(password) > 256:
             self._error(400, "Password must be between 10 and 256 characters.")
@@ -1114,8 +1170,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             with db() as conn:
                 conn.execute(
-                    "INSERT INTO accounts(id, username, display_name, password_salt, password_hash, created_at) VALUES(?,?,?,?,?,?)",
-                    (account_id, username, display_name, salt, password_hash, now_iso()),
+                    "INSERT INTO accounts(id, username, username_key, display_name, password_salt, password_hash, created_at) VALUES(?,?,?,?,?,?,?)",
+                    (account_id, username, username.casefold(), display_name, salt, password_hash, now_iso()),
                 )
         except sqlite3.IntegrityError:
             self._error(409, "That username is already registered.")
@@ -1135,8 +1191,8 @@ class Handler(BaseHTTPRequestHandler):
         password = str(body.get("password") or "")
         with db() as conn:
             account = conn.execute(
-                "SELECT id, username, display_name, password_salt, password_hash FROM accounts WHERE username=? COLLATE NOCASE",
-                (username,),
+                "SELECT id, username, display_name, password_salt, password_hash FROM accounts WHERE username_key=?",
+                (username.casefold(),)
             ).fetchone()
         # Perform a KDF even for unknown usernames to reduce timing-based enumeration.
         salt = account["password_salt"] if account else b"\x00" * 16
@@ -1190,9 +1246,9 @@ class Handler(BaseHTTPRequestHandler):
         device_id = "dev_" + secrets.token_hex(6)
         with db() as conn:
             conn.execute(
-                "INSERT INTO devices(id, name, token_hash, created_at, last_seen, account_id) "
-                "VALUES(?,?,?,?,?,?)",
-                (device_id, name, sha256_hex(token), now_iso(), now_iso(), account_id),
+                "INSERT INTO devices(id, name, token_hash, created_at, last_seen, account_id, master_authorized) "
+                "VALUES(?,?,?,?,?,?,?)",
+                (device_id, name, sha256_hex(token), now_iso(), now_iso(), account_id, int(bool(master_key))),
             )
         self._send_json(
             200,
@@ -1395,6 +1451,17 @@ class Handler(BaseHTTPRequestHandler):
         if account_id is None:
             self._error(401, "sign in first")
             return
+        # A normal account session is not enough to create a server. Require
+        # at least one currently active device for this account that was paired
+        # using the host master key. This is enforced here, not in the UI.
+        with db() as conn:
+            authorized = conn.execute(
+                "SELECT 1 FROM devices WHERE account_id=? AND master_authorized=1 AND revoked=0 LIMIT 1",
+                (account_id,),
+            ).fetchone()
+        if authorized is None:
+            self._error(403, "only a master-key-authorized account can create servers")
+            return
         name = " ".join(str(body.get("name") or "").split())[:48]
         description = " ".join(str(body.get("description") or "").split())[:160]
         if not name:
@@ -1526,8 +1593,9 @@ class Handler(BaseHTTPRequestHandler):
     def _add_private_room_member(self, device: sqlite3.Row, body: dict) -> None:
         room_id = str(body.get("room_id") or "").strip()
         username = str(body.get("username") or "").strip()
-        if not room_id or not username:
-            self._error(400, "room_id and username are required")
+        action = str(body.get("action") or "add").strip().lower()
+        if not room_id or not username or action not in ("add", "remove"):
+            self._error(400, "room_id, username, and action (add/remove) are required")
             return
         with db() as conn:
             room = conn.execute("SELECT server_id, kind FROM rooms WHERE id=?", (room_id,)).fetchone()
@@ -1538,26 +1606,33 @@ class Handler(BaseHTTPRequestHandler):
                 "SELECT role FROM server_members WHERE server_id=? AND account_id=?",
                 (room["server_id"], device["account_id"]),
             ).fetchone()
-            if actor is None or actor["role"] not in ("owner", "admin"):
-                self._error(403, "only server owners and admins can add private-channel members")
+            if not device["master_authorized"] and (actor is None or actor["role"] not in ("owner", "admin")):
+                self._error(403, "only server owners/admins or a master-key device can manage private-channel access")
                 return
-            target = conn.execute("SELECT id FROM accounts WHERE username=? COLLATE NOCASE", (username,)).fetchone()
+            target = conn.execute("SELECT id FROM accounts WHERE username_key=?", (username.casefold(),)).fetchone()
             if target is None:
                 self._error(404, "user not found")
                 return
-            if not conn.execute(
-                "SELECT 1 FROM server_members WHERE server_id=? AND account_id=?",
+            target_member = conn.execute(
+                "SELECT role FROM server_members WHERE server_id=? AND account_id=?",
                 (room["server_id"], target["id"]),
-            ).fetchone():
+            ).fetchone()
+            if target_member is None:
                 self._error(400, "that user must join this server first")
                 return
-            conn.execute(
-                "INSERT OR IGNORE INTO room_members(room_id,account_id,joined_at) VALUES(?,?,?)",
-                (room_id, target["id"], now_iso()),
-            )
+            if action == "remove":
+                if target_member["role"] in ("owner", "admin"):
+                    self._error(400, "server owners and admins always have private-channel access; change their server role first")
+                    return
+                conn.execute("DELETE FROM room_members WHERE room_id=? AND account_id=?", (room_id, target["id"]))
+            else:
+                conn.execute(
+                    "INSERT OR IGNORE INTO room_members(room_id,account_id,joined_at) VALUES(?,?,?)",
+                    (room_id, target["id"], now_iso()),
+                )
         with MESSAGE_COND:
             MESSAGE_COND.notify_all()
-        self._send_json(200, {"ok": True, "room_id": room_id, "username": username})
+        self._send_json(200, {"ok": True, "action": action, "room_id": room_id, "username": username})
 
     def _open_dm(self, device: sqlite3.Row, body: dict) -> None:
         raw_names = body.get("usernames")
@@ -1577,7 +1652,7 @@ class Handler(BaseHTTPRequestHandler):
             targets = []
             for username in requested:
                 target = conn.execute(
-                    "SELECT id, username FROM accounts WHERE username=? COLLATE NOCASE", (username,)
+                    "SELECT id, username FROM accounts WHERE username_key=?", (username.casefold(),)
                 ).fetchone()
                 if target is None:
                     self._error(404, f"user not found: {username}")
@@ -1639,7 +1714,7 @@ class Handler(BaseHTTPRequestHandler):
             if actor is None or actor["role"] != "owner":
                 self._error(403, "only the server owner can change roles")
                 return
-            target = conn.execute("SELECT id FROM accounts WHERE username=? COLLATE NOCASE", (username,)).fetchone()
+            target = conn.execute("SELECT id FROM accounts WHERE username_key=?", (username.casefold(),)).fetchone()
             if target is None:
                 self._error(404, "user not found")
                 return
@@ -1660,6 +1735,16 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json(200, {"ok": True, "username": username, "role": role})
 
     def _create_room(self, device: sqlite3.Row, body: dict) -> None:
+        # Channel creation is reserved for accounts with an active device
+        # paired using the host master key; role checks below remain in force.
+        with db() as conn:
+            authorized = conn.execute(
+                "SELECT 1 FROM devices WHERE account_id=? AND master_authorized=1 AND revoked=0 LIMIT 1",
+                (device["account_id"],),
+            ).fetchone()
+        if authorized is None:
+            self._error(403, "only a master-key-authorized account can create channels")
+            return
         name = " ".join(str(body.get("name") or "").split())[:32]
         description = " ".join(str(body.get("description") or "").split())[:120]
         category = " ".join(str(body.get("category") or "").split())[:32]
@@ -1802,7 +1887,6 @@ def main() -> int:
         return 0
 
     ensure_master_key()
-    # Channel administration defaults to the host master key. An explicit
 
     cert_path = DATA_DIR / "cert.pem"
     key_path = DATA_DIR / "key.pem"

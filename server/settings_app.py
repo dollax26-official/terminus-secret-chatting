@@ -54,9 +54,9 @@ class HostSettingsApp:
         self.root = root
         self.root.title("Terminus Secrets - Host Manager")
         screen_height = self.root.winfo_screenheight()
-        window_height = min(640, max(560, screen_height - 90))
-        self.root.geometry(f"780x{window_height}+20+20")
-        self.root.minsize(620, 520)
+        window_height = min(740, max(600, screen_height - 110))
+        self.root.geometry(f"820x{window_height}+20+20")
+        self.root.minsize(700, 560)
         self.root.configure(bg="#080d13")
         self.process: subprocess.Popen | None = None
         self.log_handle = None
@@ -70,11 +70,13 @@ class HostSettingsApp:
         self.concurrent_media = tk.IntVar(value=1)
         self.status = tk.StringVar(value="Ready to configure")
         self.credentials = tk.StringVar(value="Not started yet — start the server to load its saved credentials.")
-        self.vault_value = tk.StringVar()
-        self.master_value = tk.StringVar()
-        self.pairing_value = tk.StringVar()
+        self.vault_phrase_var = tk.StringVar()
+        self.master_key_var = tk.StringVar()
+        self.pairing_code_var = tk.StringVar()
         self.vault_phrase = ""
         self.pairing_code = ""
+        self.master_key = ""
+        self._credential_poll_attempts = 0
         self.vars = {name: tk.BooleanVar(value=DEFAULTS[name]) for name in DEFAULTS}
         self._load_config()
         self._style()
@@ -184,16 +186,19 @@ class HostSettingsApp:
         secrets_panel.pack(fill="x", pady=(0, 12))
         ttk.Label(secrets_panel, text="PERSISTENT HOST CREDENTIALS", style="PanelTitle.TLabel").pack(anchor="w", pady=(0, 6))
         for label, value_var in (
-            ("Vault phrase", self.vault_value),
-            ("Master key", self.master_value),
-            ("Pairing code", self.pairing_value),
+            ("Vault phrase", self.vault_phrase_var),
+            ("Master key", self.master_key_var),
+            ("Pairing code", self.pairing_code_var),
         ):
             row = ttk.Frame(secrets_panel, style="Panel.TFrame")
             row.pack(fill="x", pady=2)
             ttk.Label(row, text=label, width=13, style="PanelMuted.TLabel").pack(side="left")
             entry = ttk.Entry(row, textvariable=value_var, state="readonly", font=("Consolas", 9))
             entry.pack(side="left", fill="x", expand=True, padx=(4, 6))
-            ttk.Button(row, text="Copy", command=lambda v=value_var: self._copy_secret(v)).pack(side="right")
+            ttk.Button(
+                row, text="Copy",
+                command=lambda var=value_var, title=label: self._copy_secret(var.get(), title),
+            ).pack(side="right")
         actions = ttk.Frame(secrets_panel, style="Panel.TFrame")
         actions.pack(fill="x", pady=(8, 0))
         ttk.Button(actions, text="Copy all credentials", command=self._copy_all_secrets).pack(side="left")
@@ -221,10 +226,10 @@ class HostSettingsApp:
         self.ram_text.pack(side="right")
         capacity = ttk.Frame(estimate, style="Panel.TFrame")
         capacity.pack(fill="x", pady=(10, 2))
-        ttk.Label(capacity, text="Connected clients", style="Panel.TLabel").pack(side="left")
+        ttk.Label(capacity, text="Local clients on this PC", style="Panel.TLabel").pack(side="left")
         self.clients_spin = ttk.Spinbox(capacity, from_=1, to=32, width=5, textvariable=self.expected_clients, command=self._update_estimate)
         self.clients_spin.pack(side="left", padx=(8, 18))
-        ttk.Label(capacity, text="Concurrent media sessions", style="Panel.TLabel").pack(side="left")
+        ttk.Label(capacity, text="Media sessions on this PC", style="Panel.TLabel").pack(side="left")
         self.media_spin = ttk.Spinbox(capacity, from_=0, to=12, width=5, textvariable=self.concurrent_media, command=self._update_estimate)
         self.media_spin.pack(side="left", padx=(8, 0))
         self.expected_clients.trace_add("write", lambda *_: self._update_estimate())
@@ -234,6 +239,10 @@ class HostSettingsApp:
         ttk.Label(estimate, text="Scale: 0-5 GB available budget - orange warning above 4 GB", style="PanelMuted.TLabel").pack(anchor="w")
         self.ram_note = ttk.Label(estimate, text="", style="Muted.TLabel", wraplength=620)
         self.ram_note.pack(anchor="w")
+        self.cpu_text = ttk.Label(estimate, text="", style="Panel.TLabel", wraplength=620)
+        self.cpu_text.pack(anchor="w", pady=(8, 0))
+        self.vram_text = ttk.Label(estimate, text="", style="Panel.TLabel", wraplength=620)
+        self.vram_text.pack(anchor="w", pady=(4, 0))
 
         ttk.Label(outer, text=f"Settings: {CONFIG}", style="Muted.TLabel", wraplength=650).pack(anchor="w", pady=(14, 0))
         self._bind_scroll_events(outer)
@@ -267,22 +276,51 @@ class HostSettingsApp:
         for child in widget.winfo_children():
             self._bind_scroll_events(child)
 
-    def _copy_secret(self, value_var: tk.StringVar) -> None:
-        value = (value_var.get() or "").strip()
+    def _copy_to_clipboard(self, value: str, label: str) -> bool:
+        value = (value or "").strip()
         if not value:
-            messagebox.showwarning("Unavailable", "Start the server once so this credential exists.")
+            messagebox.showwarning("Unavailable", f"There is no {label.lower()} to copy yet.")
+            return False
+        # On Windows, clip.exe uses the OS clipboard directly and is more reliable
+        # than Tk's ownership-based clipboard in packaged/frozen windows.
+        try:
+            if os.name == "nt":
+                flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                result = subprocess.run(
+                    ["clip.exe"], input=value, text=True, encoding="utf-8",
+                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                    timeout=3, creationflags=flags, check=False,
+                )
+                if result.returncode == 0:
+                    self.status.set(f"{label} copied to clipboard")
+                    return True
+        except (OSError, subprocess.SubprocessError):
+            pass
+        try:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(value)
+            self.root.update_idletasks()
+            self.root.update()
+            self.status.set(f"{label} copied to clipboard")
+            return True
+        except tk.TclError as exc:
+            messagebox.showerror("Copy failed", f"Could not copy {label.lower()} to the clipboard: {exc}")
+            self.status.set(f"Copy failed: {label}")
+            return False
+
+    def _copy_secret(self, value: str, label: str) -> None:
+        value = (value or "").strip()
+        if not value:
+            messagebox.showwarning("Credential unavailable", f"{label} is not available yet. Start the server first.")
             return
-        self.root.clipboard_clear()
-        self.root.clipboard_append(value)
-        self.root.update_idletasks()
-        self.status.set("Credential copied to clipboard")
+        self._copy_to_clipboard(value, label)
 
     def _copy_all_secrets(self) -> None:
         lines = []
         for label, value_var in (
-            ("Vault phrase", self.vault_value),
-            ("Master key", self.master_value),
-            ("Pairing code", self.pairing_value),
+            ("Vault phrase", self.vault_phrase_var),
+            ("Master key", self.master_key_var),
+            ("Pairing code", self.pairing_code_var),
         ):
             value = (value_var.get() or "").strip()
             if value:
@@ -290,17 +328,14 @@ class HostSettingsApp:
         if not lines:
             messagebox.showwarning("Unavailable", "Start the server once so the credentials exist.")
             return
-        self.root.clipboard_clear()
-        self.root.clipboard_append("\n".join(lines))
-        self.root.update_idletasks()
-        self.status.set("All credentials copied to clipboard")
+        self._copy_to_clipboard("\n".join(lines), "All credentials")
 
     def _copy_public_text(self, value: str) -> None:
         value = (value or "").strip()
         if not value or value in {"Checking…", "Address unavailable", "IPv6 unavailable"}:
-            messagebox.showwarning("Unavailable", "There is no address to copy yet."); return
-        self.root.clipboard_clear(); self.root.clipboard_append(value); self.root.update_idletasks()
-        self.status.set("Address copied to clipboard")
+            messagebox.showwarning("Unavailable", "There is no address to copy yet.")
+            return
+        self._copy_to_clipboard(value, "Address")
 
     def _update_address(self) -> None:
         custom = self.public_url.get().strip().rstrip("/")
@@ -354,15 +389,49 @@ class HostSettingsApp:
         if not hasattr(self, "ram_text"):
             return
         mb = self._estimate_mb()
-        self.ram_text.configure(text=f"~{mb} MB ({mb / 1024:.2f} GB) / 5 GB budget")
+        self.ram_text.configure(text=f"~{mb} MB ({mb / 1024:.2f} GB) / 5 GB system RAM")
         self.ram_bar.configure(value=min(mb, RAM_BUDGET_MB))
+        try:
+            local_clients = max(1, min(32, int(self.expected_clients.get())))
+        except (tk.TclError, ValueError):
+            local_clients = 2
+        try:
+            sessions = max(0, min(12, int(self.concurrent_media.get())))
+        except (tk.TclError, ValueError):
+            sessions = 1
+        cpu_low = 1.0 + local_clients * 0.5
+        cpu_high = 3.0 + local_clients * 1.2
+        if self.vars["voice_calls"].get():
+            cpu_low += sessions * 1.0
+            cpu_high += sessions * 3.0
+        if self.vars["video_calls"].get():
+            cpu_low += sessions * 3.0
+            cpu_high += sessions * 9.0
+        if self.vars["screen_sharing"].get():
+            cpu_low += sessions * 2.0
+            cpu_high += sessions * 6.0
+        self.cpu_text.configure(
+            text=f"Estimated CPU on 12th-gen Intel Core i5: {min(100, cpu_low):.0f}–{min(100, cpu_high):.0f}%"
+        )
+        # The host is a signaling/message relay and does not transcode media.
+        # VRAM applies only when this PC also runs a local Windows chat client.
+        vram_low = sessions * (0.10 if self.vars["video_calls"].get() else 0.0)
+        vram_high = sessions * (
+            (0.45 if self.vars["video_calls"].get() else 0.0)
+            + (0.20 if self.vars["screen_sharing"].get() else 0.0)
+        )
+        self.vram_text.configure(
+            text=(f"Estimated RTX 3050 4 GB VRAM (local client only): "
+                  f"{vram_low:.1f}–{min(3.8, vram_high):.1f} GB; host-only use is near 0 GB")
+        )
         if mb > RAM_CAUTION_MB:
             note = ("WARNING: this planning estimate exceeds 4 GB. Reduce expected clients or concurrent media sessions. "
                     "This is a planning model, not a hard memory cap or live measurement.")
         else:
-            note = ("Planning estimate only — not a live measurement or a hard RAM limit. Assumes about 180 MB per connected "
-                    "client plus a host baseline and the enabled capabilities for each concurrent media session. Real usage "
-                    "depends on browser/WebView processes, media resolution, OS overhead, and other running apps.")
+            note = ("Planning estimate only — not live telemetry, a benchmark, or a hard memory limit. It estimates this PC's "
+                    "host plus local client(s); remote users' devices do not consume their full RAM on this host. Media costs "
+                    "apply only to sessions active on this PC. Real usage depends on browser/WebView processes, resolution, "
+                    "drivers, hardware acceleration, OS overhead, and other running apps.")
         self.ram_note.configure(text=note)
 
     def _save(self) -> None:
@@ -426,37 +495,57 @@ class HostSettingsApp:
         self.status.set(f"Starting host on HTTPS port {config['port']}…")
         self.start_button.configure(state="disabled")
         self.stop_button.configure(state="normal")
-        self.root.after(1200, self._report_start)
+        self._credential_poll_attempts = 0
+        self._load_credentials()
+        self.root.after(500, self._report_start)
 
     def _report_start(self) -> None:
-        if self.process and self.process.poll() is None:
-            self._load_credentials()
-            self.status.set("Server process running · credentials shown above · diagnostics in host-errors.log")
-        else:
+        if not self.process or self.process.poll() is not None:
             self.status.set("Server exited · open server/data/host-errors.log for details")
             self.start_button.configure(state="normal")
             self.stop_button.configure(state="disabled")
+            return
+        self._load_credentials()
+        if self.vault_phrase and self.pairing_code and self.master_key:
+            self.status.set("Server running · all three credentials are ready to copy.")
+            return
+        self._credential_poll_attempts = getattr(self, "_credential_poll_attempts", 0) + 1
+        if self._credential_poll_attempts < 60:
+            self.status.set("Server starting · waiting for vault phrase, pairing code, and master key…")
+            self.root.after(500, self._report_start)
+        else:
+            self.status.set("Server is running, but credentials are missing. Check the configured data folder and host-errors.log.")
 
     def _load_credentials(self) -> None:
-        if not (DATA / "vault-passphrase.txt").exists():
-            self.vault_value.set("")
-            self.master_value.set("")
-            self.pairing_value.set("")
-            self.credentials.set("Start the server once to generate the credentials.")
-            return
-        try:
-            vault = (DATA / "vault-passphrase.txt").read_text(encoding="utf-8").strip()
-            pairing = (DATA / "pairing-code.txt").read_text(encoding="utf-8").strip()
-            master_file = DATA / "master-key.txt"
-            master = master_file.read_text(encoding="utf-8").strip() if master_file.exists() else ""
-            self.vault_phrase = vault
-            self.pairing_code = pairing
-            self.vault_value.set(vault)
-            self.master_value.set(master)
-            self.pairing_value.set(pairing)
-            self.credentials.set("\n".join(filter(None, [f"Vault phrase: {vault}", f"Master key: {master}" if master else "", f"Pairing code: {pairing}"])))
-        except OSError:
-            self.credentials.set("Credentials are being initialized. Wait a moment, then check again.")
+        # Each file is independent and credentials are refreshed while the host
+        # starts; this handles slow startup and packaged managers using --data-dir.
+        def read_secret(filename: str) -> str:
+            try:
+                value = (DATA / filename).read_text(encoding="utf-8").strip()
+                return value if value else ""
+            except (OSError, UnicodeError):
+                return ""
+
+        vault = read_secret("vault-passphrase.txt")
+        pairing = read_secret("pairing-code.txt").upper()
+        master = read_secret("master-key.txt")
+        self.vault_phrase = vault
+        self.pairing_code = pairing
+        self.master_key = master
+        self.vault_phrase_var.set(vault or "Waiting for host to create vault phrase…")
+        self.master_key_var.set(master or "Waiting for host to create master key…")
+        self.pairing_code_var.set(pairing or "Waiting for host to create pairing code…")
+        if vault and pairing and master:
+            self.credentials.set("All host credentials loaded. Use the matching Copy button.")
+        else:
+            missing = []
+            if not vault:
+                missing.append("vault phrase")
+            if not pairing:
+                missing.append("pairing code")
+            if not master:
+                missing.append("master key")
+            self.credentials.set("Waiting for: " + ", ".join(missing) + ". Credentials are read from: " + str(DATA))
 
     def stop_server(self) -> None:
         if not self.process or self.process.poll() is not None:
