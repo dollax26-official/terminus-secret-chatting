@@ -2,8 +2,12 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="theme-color" content="#070a0f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Terminus">
+<meta name="format-detection" content="telephone=no">
 <meta name="description" content="Terminus Secrets — an end-to-end encrypted private channel.">
 <meta name="color-scheme" content="dark">
 <title>Terminus Secrets</title>
@@ -42,12 +46,11 @@
 
     <section id="accountPanel" class="account-panel">
       <h2 id="accountTitle">Sign in to this server</h2>
-      <p class="field-hint">Create an account on this server before pairing a device. Usernames are unique; display names can be reused.</p>
+      <p class="field-hint">Create an account on this server before pairing a device. Your username is unique to this server.</p>
       <form id="accountForm" autocomplete="on" novalidate>
         <label class="field">
           <span>Username</span>
-          <input id="accountUsername" name="username" maxlength="24" minlength="3" autocomplete="username" placeholder="your_username" aria-describedby="usernameHint" required>
-          <small id="usernameHint" class="field-hint">3–24 letters, numbers, underscores or hyphens.</small>
+          <input id="accountUsername" name="username" maxlength="24" minlength="3" autocomplete="username" placeholder="your_username" required>
         </label>
         <label class="field">
           <span>Display name <small>(shown to others; not unique)</small></span>
@@ -55,13 +58,12 @@
         </label>
         <label class="field">
           <span>Password</span>
-          <input id="accountPassword" name="password" type="password" minlength="10" maxlength="256" autocomplete="current-password" aria-describedby="passwordHint" required>
-          <small id="passwordHint" class="field-hint">Use at least 10 characters.</small>
+          <input id="accountPassword" name="password" type="password" minlength="10" maxlength="256" autocomplete="current-password" required>
         </label>
         <button id="accountBtn" class="primary" type="submit">Sign in</button>
         <p id="accountError" class="form-error" role="alert"></p>
       </form>
-      <button id="accountModeBtn" class="linkish" type="button" aria-controls="accountForm">Need an account? Create one</button>
+      <button id="accountModeBtn" class="linkish" type="button">Need an account? Create one</button>
       <p class="field-hint">Usernames are unique on this host. Display names may be reused by any number of accounts.</p>
     </section>
 
@@ -76,7 +78,7 @@
           <label class="field">
             <span>Pairing code</span>
             <input id="codeInput" name="code" inputmode="text" spellcheck="false"
-                   placeholder="007EE4-9B4BA6" maxlength="13" autocapitalize="characters" autocomplete="one-time-code">
+                   placeholder="A1B2-C3D4" maxlength="9" autocomplete="one-time-code">
           </label>
         </div>
 
@@ -191,6 +193,7 @@
         </div>
       </div>
       <button id="infoBtn" class="ghost-btn">Host &amp; devices</button>
+      <button id="settingsBtn" class="ghost-btn">Appearance settings</button>
       <button id="switchAccountBtn" class="ghost-btn">Switch account / sign out</button>
     </footer>
   </aside>
@@ -255,7 +258,7 @@
     </section>
     <p class="composer-hint">
       <span class="hint-desktop"><span class="mono">ENTER</span> send · <span class="mono">SHIFT+ENTER</span> newline · history saved on the host</span>
-      <span class="hint-mobile">Encrypted on this device · history stays on the host</span>
+      <span class="hint-mobile">Encrypted · saved on the host</span>
     </p>
   </main>
 </section>
@@ -297,6 +300,27 @@
   </form>
 </dialog>
 
+<dialog id="settingsDialog" class="dialog">
+  <form id="settingsForm" class="dialog-inner" method="dialog">
+    <header class="dialog-head">
+      <h3>Appearance settings</h3>
+      <button value="close" class="icon-btn" aria-label="Close">×</button>
+    </header>
+    <p class="muted">These preferences are saved on this device and do not change other users' appearance.</p>
+    <label class="field">
+      <span>Background color</span>
+      <input id="backgroundColorInput" type="color" value="#06090e" aria-label="Background color">
+    </label>
+    <label class="field">
+      <span>Accent color</span>
+      <input id="accentColorInput" type="color" value="#3ee0c5" aria-label="Accent color">
+    </label>
+    <footer class="dialog-foot">
+      <button id="resetAppearanceBtn" type="button" class="ghost-btn">Reset defaults</button>
+      <button value="close" class="primary small">Done</button>
+    </footer>
+  </form>
+</dialog>
 
 <dialog id="roomDialog" class="dialog">
   <form id="roomForm" class="dialog-inner" method="dialog">
@@ -321,7 +345,6 @@
     <footer class="dialog-foot room-dialog-actions">
       <div class="foot-left">
         <button type="button" id="addRoomMemberBtn" class="ghost-btn compact" hidden>Add member</button>
-        <button type="button" id="removeRoomMemberBtn" class="ghost-btn compact" hidden>Remove member</button>
         <button type="button" id="deleteRoomBtn" class="danger-btn" hidden>Delete channel</button>
       </div>
       <div class="foot-right">
