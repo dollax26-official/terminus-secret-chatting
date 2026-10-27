@@ -18,10 +18,12 @@ import ipaddress
 from pathlib import Path
 from tkinter import messagebox, ttk
 
-FROZEN = bool(getattr(sys, "frozen", False))
-HERE = Path(sys.executable).resolve().parent if FROZEN else Path(__file__).resolve().parent
-HOST = HERE / "host.py"
-HOST_EXE = HERE / "TerminusSecretsHost.exe"
+if getattr(sys, "frozen", False):
+    HERE = Path(sys.executable).resolve().parent
+    HOST = HERE / "TerminusSecretsHost.exe"
+else:
+    HERE = Path(__file__).resolve().parent
+    HOST = HERE / "host.py"
 DATA = HERE / "data"
 CONFIG = DATA / "server-settings.json"
 LOG = DATA / "host-errors.log"
@@ -50,9 +52,11 @@ RAM_CAUTION_MB = 4 * 1024
 class HostSettingsApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.root.title("Terminus Secrets · Host Manager")
-        self.root.geometry("740x760")
-        self.root.minsize(620, 680)
+        self.root.title("Terminus Secrets - Host Manager")
+        screen_height = self.root.winfo_screenheight()
+        window_height = min(640, max(560, screen_height - 90))
+        self.root.geometry(f"780x{window_height}+20+20")
+        self.root.minsize(620, 520)
         self.root.configure(bg="#080d13")
         self.process: subprocess.Popen | None = None
         self.log_handle = None
@@ -68,15 +72,12 @@ class HostSettingsApp:
         self.credentials = tk.StringVar(value="Not started yet — start the server to load its saved credentials.")
         self.vault_phrase = ""
         self.pairing_code = ""
-        self.master_key = ""
-        self.vault_phrase_var = tk.StringVar(value="Not loaded yet")
-        self.pairing_code_var = tk.StringVar(value="Not loaded yet")
-        self.master_key_var = tk.StringVar(value="Not loaded yet")
         self.vars = {name: tk.BooleanVar(value=DEFAULTS[name]) for name in DEFAULTS}
         self._load_config()
         self._style()
         self._build()
         self._update_estimate()
+        self._load_credentials()
         self._refresh_ipv6()
         self.port.trace_add("write", lambda *_: self._update_address())
         self.public_url.trace_add("write", lambda *_: self._update_address())
@@ -92,15 +93,30 @@ class HostSettingsApp:
         style.configure("TFrame", background="#080d13")
         style.configure("Panel.TFrame", background="#101823")
         style.configure("TLabel", background="#080d13", foreground="#e8eef7", font=("Segoe UI", 10))
+        style.configure("Accent.TLabel", background="#080d13", foreground="#3ee0c5", font=("Segoe UI Semibold", 9))
         style.configure("Muted.TLabel", background="#080d13", foreground="#8fa0b5", font=("Segoe UI", 9))
-        style.configure("Title.TLabel", background="#080d13", foreground="#e8eef7", font=("Segoe UI Semibold", 20))
-        style.configure("TCheckbutton", background="#101823", foreground="#e8eef7", padding=8)
+        style.configure("Panel.TLabel", background="#101823", foreground="#e8eef7", font=("Segoe UI", 10))
+        style.configure("PanelTitle.TLabel", background="#101823", foreground="#3ee0c5", font=("Segoe UI Semibold", 9))
+        style.configure("PanelMuted.TLabel", background="#101823", foreground="#8fa0b5", font=("Segoe UI", 9))
+        style.configure("Title.TLabel", background="#080d13", foreground="#e8eef7", font=("Segoe UI Semibold", 21))
+        style.configure("TCheckbutton", background="#101823", foreground="#e8eef7", font=("Segoe UI", 10), padding=7)
         style.map("TCheckbutton", background=[("active", "#101823")], foreground=[("active", "#3ee0c5")])
-        style.configure("TButton", font=("Segoe UI Semibold", 10), padding=(14, 9))
-        style.configure("Start.TButton", background="#3ee0c5", foreground="#04211d")
+        style.configure("TButton", font=("Segoe UI Semibold", 10), padding=(14, 8),
+                        background="#16202e", foreground="#e8eef7", bordercolor="#26374a",
+                        lightcolor="#16202e", darkcolor="#16202e", relief="flat")
+        style.map("TButton", background=[("active", "#1d2a3a")], foreground=[("active", "#ffffff")])
+        style.configure("Start.TButton", background="#3ee0c5", foreground="#04211d", bordercolor="#3ee0c5")
         style.map("Start.TButton", background=[("active", "#70f0db")])
-        style.configure("TEntry", fieldbackground="#080d13", foreground="#e8eef7", insertcolor="#e8eef7")
-        style.configure("Horizontal.TProgressbar", troughcolor="#1c2735", background="#3ee0c5")
+        style.configure("Stop.TButton", background="#2a1720", foreground="#ff9bab", bordercolor="#5a2733")
+        style.map("Stop.TButton", background=[("active", "#3a1d29")])
+        style.configure("TEntry", fieldbackground="#080d13", foreground="#e8eef7",
+                        insertcolor="#e8eef7", bordercolor="#26374a", lightcolor="#26374a",
+                        darkcolor="#26374a", padding=6)
+        style.configure("TSpinbox", fieldbackground="#080d13", foreground="#e8eef7",
+                        bordercolor="#26374a", arrowcolor="#8fa0b5", padding=4)
+        style.configure("Horizontal.TProgressbar", troughcolor="#1c2735", background="#3ee0c5",
+                        bordercolor="#1c2735", lightcolor="#3ee0c5", darkcolor="#3ee0c5")
+        style.configure("TSeparator", background="#1c2735")
 
     def _load_config(self) -> None:
         if not CONFIG.exists():
@@ -120,7 +136,15 @@ class HostSettingsApp:
     def _build(self) -> None:
         shell = ttk.Frame(self.root)
         shell.pack(fill="both", expand=True)
-        self.canvas = tk.Canvas(shell, bg="#080d13", highlightthickness=0, takefocus=True, yscrollincrement=24)
+        footer = ttk.Frame(shell, padding=(24, 8))
+        footer.pack(side="bottom", fill="x")
+        ttk.Separator(shell, orient="horizontal").pack(side="bottom", fill="x")
+        ttk.Label(footer, textvariable=self.status, style="Muted.TLabel").pack(side="left", fill="x", expand=True)
+        self.start_button = ttk.Button(footer, text="Start server", style="Start.TButton", command=self.start_server)
+        self.start_button.pack(side="right")
+        self.stop_button = ttk.Button(footer, text="Stop server", style="Stop.TButton", command=self.stop_server, state="disabled")
+        self.stop_button.pack(side="right", padx=(0, 8))
+        self.canvas = tk.Canvas(shell, bg="#080d13", highlightthickness=0)
         self.scrollbar = ttk.Scrollbar(shell, orient="vertical", command=self.canvas.yview)
         self.canvas.configure(yscrollcommand=self.scrollbar.set)
         self.scrollbar.pack(side="right", fill="y")
@@ -128,60 +152,40 @@ class HostSettingsApp:
         outer = ttk.Frame(self.canvas, padding=24)
         self._content_window = self.canvas.create_window((0, 0), window=outer, anchor="nw")
         outer.bind("<Configure>", self._update_scroll_region)
-        self.root.after_idle(self._update_scroll_region)
         self.canvas.bind("<Configure>", self._resize_scroll_content)
-        # The canvas is keyboard-scrollable as well as mouse-wheel/touchpad scrollable.
-        self.canvas.bind("<Prior>", lambda _event: self.canvas.yview_scroll(-1, "pages"))
-        self.canvas.bind("<Next>", lambda _event: self.canvas.yview_scroll(1, "pages"))
-        self.canvas.bind("<Home>", lambda _event: self.canvas.yview_moveto(0))
-        self.canvas.bind("<End>", lambda _event: self.canvas.yview_moveto(1))
-        self.canvas.bind("<Button-1>", lambda _event: self.canvas.focus_set(), add="+")
-        ttk.Label(outer, text="TERMINUS  /  HOST MANAGER", style="Muted.TLabel").pack(anchor="w")
-        ttk.Label(outer, text="Configure your private server", style="Title.TLabel").pack(anchor="w", pady=(5, 3))
+        ttk.Label(outer, text="TERMINUS  /  HOST MANAGER", style="Accent.TLabel").pack(anchor="w")
+        ttk.Label(outer, text="Configure your private server", style="Title.TLabel").pack(anchor="w", pady=(4, 3))
         ttk.Label(outer, text="Choose the capabilities clients can see. Your vault phrase and pairing code are kept in the data folder.", wraplength=640, style="Muted.TLabel").pack(anchor="w", pady=(0, 18))
 
         network = ttk.Frame(outer, style="Panel.TFrame", padding=14)
         network.pack(fill="x", pady=(0, 12))
-        ttk.Label(network, text="NETWORK SETTINGS").pack(anchor="w", pady=(0, 8))
+        ttk.Label(network, text="NETWORK SETTINGS", style="PanelTitle.TLabel").pack(anchor="w", pady=(0, 8))
         row = ttk.Frame(network, style="Panel.TFrame")
         row.pack(fill="x")
-        ttk.Label(row, text="HTTPS port").pack(side="left")
+        ttk.Label(row, text="HTTPS port", style="Panel.TLabel").pack(side="left")
         ttk.Entry(row, textvariable=self.port, width=9).pack(side="left", padx=(10, 20))
-        ttk.Label(row, text="Public URL (optional)", style="TLabel").pack(side="left")
+        ttk.Label(row, text="Public URL (optional)", style="Panel.TLabel").pack(side="left")
         ttk.Entry(row, textvariable=self.public_url).pack(side="left", fill="x", expand=True, padx=(10, 0))
-        ttk.Label(network, text="PUBLIC IPv6 ADDRESS", style="Muted.TLabel").pack(anchor="w", pady=(12, 4))
+        ttk.Label(network, text="PUBLIC IPv6 ADDRESS", style="PanelMuted.TLabel").pack(anchor="w", pady=(12, 4))
         iprow = ttk.Frame(network, style="Panel.TFrame"); iprow.pack(fill="x")
         ttk.Entry(iprow, textvariable=self.public_ipv6, state="readonly").pack(side="left", fill="x", expand=True)
         ttk.Button(iprow, text="Copy IPv6", command=lambda: self._copy_public_text(self.public_ipv6.get())).pack(side="left", padx=6)
         ttk.Button(iprow, text="Refresh", command=self._refresh_ipv6).pack(side="left")
-        ttk.Label(network, text="CLIENT ADDRESS", style="Muted.TLabel").pack(anchor="w", pady=(10, 4))
+        ttk.Label(network, text="CLIENT ADDRESS", style="PanelMuted.TLabel").pack(anchor="w", pady=(10, 4))
         arow = ttk.Frame(network, style="Panel.TFrame"); arow.pack(fill="x")
         ttk.Entry(arow, textvariable=self.client_address, state="readonly").pack(side="left", fill="x", expand=True)
         ttk.Button(arow, text="Copy address", command=lambda: self._copy_public_text(self.client_address.get())).pack(side="left", padx=6)
-        ttk.Label(network, text="IPv6 is formatted with brackets in the URL. Your carrier/router must allow inbound IPv6; changing networks can change this address without changing saved credentials.", style="Muted.TLabel", wraplength=620).pack(anchor="w", pady=(8, 0))
+        ttk.Label(network, text="IPv6 is formatted with brackets in the URL. Your carrier/router must allow inbound IPv6; changing networks can change this address without changing saved credentials.", style="PanelMuted.TLabel", wraplength=620).pack(anchor="w", pady=(8, 0))
 
         secrets_panel = ttk.Frame(outer, style="Panel.TFrame", padding=14)
         secrets_panel.pack(fill="x", pady=(0, 12))
-        ttk.Label(secrets_panel, text="PERSISTENT HOST CREDENTIALS").pack(anchor="w", pady=(0, 6))
-        ttk.Label(secrets_panel, text="Copy these values into your other devices. The vault phrase decrypts history; the pairing code and master key enroll devices.", style="Muted.TLabel", wraplength=620).pack(anchor="w", pady=(0, 8))
-        for label, variable in (
-            ("Vault phrase", self.vault_phrase_var),
-            ("Pairing code", self.pairing_code_var),
-            ("Master key", self.master_key_var),
-        ):
-            credential_row = ttk.Frame(secrets_panel, style="Panel.TFrame")
-            credential_row.pack(fill="x", pady=4)
-            ttk.Label(credential_row, text=label, width=13).pack(side="left", anchor="w")
-            credential_entry = ttk.Entry(credential_row, textvariable=variable, state="readonly")
-            credential_entry.pack(side="left", fill="x", expand=True, padx=(4, 8))
-            ttk.Button(credential_row, text="Copy",
-                command=lambda var=variable, title=label: self._copy_secret(var.get(), title)
-            ).pack(side="right")
-        ttk.Label(secrets_panel, text="Keep these values private. They remain in this host's data folder; only share them with people you trust.", style="Muted.TLabel", wraplength=620).pack(anchor="w", pady=(7, 0))
+        ttk.Label(secrets_panel, text="PERSISTENT HOST CREDENTIALS", style="PanelTitle.TLabel").pack(anchor="w", pady=(0, 6))
+        ttk.Label(secrets_panel, textvariable=self.credentials, style="PanelMuted.TLabel", wraplength=640).pack(anchor="w")
+        ttk.Label(secrets_panel, text="Keep these values private. They stay on this host and are not sent to clients until you share them.", style="Muted.TLabel", wraplength=620).pack(anchor="w", pady=(5, 0))
 
         options = ttk.Frame(outer, style="Panel.TFrame", padding=14)
         options.pack(fill="x", pady=(0, 12))
-        ttk.Label(options, text="SERVER CAPABILITIES").pack(anchor="w", pady=(0, 7))
+        ttk.Label(options, text="SERVER CAPABILITIES", style="PanelTitle.TLabel").pack(anchor="w", pady=(0, 7))
         labels = [
             ("photos", "Photo and file attachments"),
             ("voice_messages", "Recorded voice messages"),
@@ -201,31 +205,20 @@ class HostSettingsApp:
         self.ram_text.pack(side="right")
         capacity = ttk.Frame(estimate, style="Panel.TFrame")
         capacity.pack(fill="x", pady=(10, 2))
-        ttk.Label(capacity, text="Local clients on this PC").pack(side="left")
+        ttk.Label(capacity, text="Connected clients", style="Panel.TLabel").pack(side="left")
         self.clients_spin = ttk.Spinbox(capacity, from_=1, to=32, width=5, textvariable=self.expected_clients, command=self._update_estimate)
         self.clients_spin.pack(side="left", padx=(8, 18))
-        ttk.Label(capacity, text="Media sessions on this PC").pack(side="left")
+        ttk.Label(capacity, text="Concurrent media sessions", style="Panel.TLabel").pack(side="left")
         self.media_spin = ttk.Spinbox(capacity, from_=0, to=12, width=5, textvariable=self.concurrent_media, command=self._update_estimate)
         self.media_spin.pack(side="left", padx=(8, 0))
         self.expected_clients.trace_add("write", lambda *_: self._update_estimate())
         self.concurrent_media.trace_add("write", lambda *_: self._update_estimate())
         self.ram_bar = ttk.Progressbar(estimate, maximum=RAM_BUDGET_MB, mode="determinate")
         self.ram_bar.pack(fill="x", pady=(10, 7))
-        ttk.Label(estimate, text="Scale: 0–5 GB available budget · orange warning above 4 GB", style="Muted.TLabel").pack(anchor="w")
+        ttk.Label(estimate, text="Scale: 0-5 GB available budget - orange warning above 4 GB", style="PanelMuted.TLabel").pack(anchor="w")
         self.ram_note = ttk.Label(estimate, text="", style="Muted.TLabel", wraplength=620)
         self.ram_note.pack(anchor="w")
-        self.cpu_text = ttk.Label(estimate, text="", style="TLabel", wraplength=620)
-        self.cpu_text.pack(anchor="w", pady=(8, 0))
-        self.vram_text = ttk.Label(estimate, text="", style="TLabel", wraplength=620)
-        self.vram_text.pack(anchor="w", pady=(4, 0))
 
-        footer = ttk.Frame(outer)
-        footer.pack(fill="x", pady=(4, 0))
-        ttk.Label(footer, textvariable=self.status, style="Muted.TLabel").pack(side="left", fill="x", expand=True)
-        self.start_button = ttk.Button(footer, text="Start server", style="Start.TButton", command=self.start_server)
-        self.start_button.pack(side="right")
-        self.stop_button = ttk.Button(footer, text="Stop server", command=self.stop_server, state="disabled")
-        self.stop_button.pack(side="right", padx=(0, 8))
         ttk.Label(outer, text=f"Settings: {CONFIG}", style="Muted.TLabel", wraplength=650).pack(anchor="w", pady=(14, 0))
         self._bind_scroll_events(outer)
         for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
@@ -258,51 +251,12 @@ class HostSettingsApp:
         for child in widget.winfo_children():
             self._bind_scroll_events(child)
 
-    def _copy_to_clipboard(self, value: str, label: str) -> bool:
-        value = (value or "").strip()
-        if not value:
-            messagebox.showwarning("Unavailable", f"There is no {label.lower()} to copy yet.")
-            return False
-        # On Windows, clip.exe uses the OS clipboard directly and is more reliable
-        # than Tk's ownership-based clipboard in packaged/frozen windows.
-        try:
-            if os.name == "nt":
-                flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-                result = subprocess.run(
-                    ["clip.exe"], input=value, text=True, encoding="utf-8",
-                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-                    timeout=3, creationflags=flags, check=False,
-                )
-                if result.returncode == 0:
-                    self.status.set(f"{label} copied to clipboard")
-                    return True
-        except (OSError, subprocess.SubprocessError):
-            pass
-        try:
-            self.root.clipboard_clear()
-            self.root.clipboard_append(value)
-            self.root.update_idletasks()
-            self.root.update()
-            self.status.set(f"{label} copied to clipboard")
-            return True
-        except tk.TclError as exc:
-            messagebox.showerror("Copy failed", f"Could not copy {label.lower()} to the clipboard: {exc}")
-            self.status.set(f"Copy failed: {label}")
-            return False
-
     def _copy_public_text(self, value: str) -> None:
         value = (value or "").strip()
         if not value or value in {"Checking…", "Address unavailable", "IPv6 unavailable"}:
-            messagebox.showwarning("Unavailable", "There is no address to copy yet.")
-            return
-        self._copy_to_clipboard(value, "Address")
-
-    def _copy_secret(self, value: str, label: str) -> None:
-        value = (value or "").strip()
-        if not value or value == "Not loaded yet":
-            messagebox.showwarning("Credential unavailable", f"{label} is not available yet. Start the server first.")
-            return
-        self._copy_to_clipboard(value, label)
+            messagebox.showwarning("Unavailable", "There is no address to copy yet."); return
+        self.root.clipboard_clear(); self.root.clipboard_append(value); self.root.update_idletasks()
+        self.status.set("Address copied to clipboard")
 
     def _update_address(self) -> None:
         custom = self.public_url.get().strip().rstrip("/")
@@ -356,49 +310,15 @@ class HostSettingsApp:
         if not hasattr(self, "ram_text"):
             return
         mb = self._estimate_mb()
-        self.ram_text.configure(text=f"~{mb} MB ({mb / 1024:.2f} GB) / 5 GB system RAM")
+        self.ram_text.configure(text=f"~{mb} MB ({mb / 1024:.2f} GB) / 5 GB budget")
         self.ram_bar.configure(value=min(mb, RAM_BUDGET_MB))
-        try:
-            local_clients = max(1, min(32, int(self.expected_clients.get())))
-        except (tk.TclError, ValueError):
-            local_clients = 2
-        try:
-            sessions = max(0, min(12, int(self.concurrent_media.get())))
-        except (tk.TclError, ValueError):
-            sessions = 1
-        cpu_low = 1.0 + local_clients * 0.5
-        cpu_high = 3.0 + local_clients * 1.2
-        if self.vars["voice_calls"].get():
-            cpu_low += sessions * 1.0
-            cpu_high += sessions * 3.0
-        if self.vars["video_calls"].get():
-            cpu_low += sessions * 3.0
-            cpu_high += sessions * 9.0
-        if self.vars["screen_sharing"].get():
-            cpu_low += sessions * 2.0
-            cpu_high += sessions * 6.0
-        self.cpu_text.configure(
-            text=f"Estimated CPU on 12th-gen Intel Core i5: {min(100, cpu_low):.0f}–{min(100, cpu_high):.0f}%"
-        )
-        # The host is a signaling/message relay and does not transcode media.
-        # VRAM applies only when this PC also runs a local Windows chat client.
-        vram_low = sessions * (0.10 if self.vars["video_calls"].get() else 0.0)
-        vram_high = sessions * (
-            (0.45 if self.vars["video_calls"].get() else 0.0)
-            + (0.20 if self.vars["screen_sharing"].get() else 0.0)
-        )
-        self.vram_text.configure(
-            text=(f"Estimated RTX 3050 4 GB VRAM (local client only): "
-                  f"{vram_low:.1f}–{min(3.8, vram_high):.1f} GB; host-only use is near 0 GB")
-        )
         if mb > RAM_CAUTION_MB:
             note = ("WARNING: this planning estimate exceeds 4 GB. Reduce expected clients or concurrent media sessions. "
                     "This is a planning model, not a hard memory cap or live measurement.")
         else:
-            note = ("Planning estimate only — not live telemetry, a benchmark, or a hard memory limit. It estimates this PC's "
-                    "host plus local client(s); remote users' devices do not consume their full RAM on this host. Media costs "
-                    "apply only to sessions active on this PC. Real usage depends on browser/WebView processes, resolution, "
-                    "drivers, hardware acceleration, OS overhead, and other running apps.")
+            note = ("Planning estimate only — not a live measurement or a hard RAM limit. Assumes about 180 MB per connected "
+                    "client plus a host baseline and the enabled capabilities for each concurrent media session. Real usage "
+                    "depends on browser/WebView processes, media resolution, OS overhead, and other running apps.")
         self.ram_note.configure(text=note)
 
     def _save(self) -> None:
@@ -438,19 +358,10 @@ class HostSettingsApp:
         except ValueError as exc:
             messagebox.showerror("Check settings", str(exc))
             return
-        if HOST_EXE.is_file():
-            # Packaged distribution: launch the host executable beside this manager.
-            # Persistent data stays beside the manager, not in a temporary extraction directory.
-            command = [
-                str(HOST_EXE), "--port", str(config["port"]),
-                "--config", str(CONFIG), "--data-dir", str(DATA),
-            ]
+        if getattr(sys, "frozen", False):
+            command = [str(HOST), "--port", str(config["port"]), "--data-dir", str(DATA), "--config", str(CONFIG)]
         else:
-            # Source checkout: use the current Python interpreter and host.py.
-            command = [
-                sys.executable, str(HOST), "--port", str(config["port"]),
-                "--config", str(CONFIG), "--data-dir", str(DATA),
-            ]
+            command = [sys.executable, str(HOST), "--port", str(config["port"]), "--data-dir", str(DATA), "--config", str(CONFIG)]
         if config["public_url"]:
             command.extend(["--public-url", config["public_url"]])
         try:
@@ -471,54 +382,38 @@ class HostSettingsApp:
         self.status.set(f"Starting host on HTTPS port {config['port']}…")
         self.start_button.configure(state="disabled")
         self.stop_button.configure(state="normal")
-        self._credential_poll_attempts = 0
-        self._load_credentials()
-        self.root.after(350, self._report_start)
+        self.root.after(1200, self._report_start)
 
     def _report_start(self) -> None:
-        if not self.process or self.process.poll() is not None:
+        if self.process and self.process.poll() is None:
+            self._load_credentials()
+            self.status.set("Server process running · credentials shown above · diagnostics in host-errors.log")
+        else:
             self.status.set("Server exited · open server/data/host-errors.log for details")
             self.start_button.configure(state="normal")
             self.stop_button.configure(state="disabled")
-            return
-        self._load_credentials()
-        if self.vault_phrase and self.pairing_code and self.master_key:
-            self.status.set("Server running · all three credentials are ready to copy.")
-            return
-        self._credential_poll_attempts = getattr(self, "_credential_poll_attempts", 0) + 1
-        if self._credential_poll_attempts < 60:
-            self.status.set("Server starting · waiting for vault phrase, pairing code, and master key…")
-            self.root.after(500, self._report_start)
-        else:
-            self.status.set("Server is running, but credentials are missing. Check the configured data folder and host-errors.log.")
 
     def _load_credentials(self) -> None:
-        # Each file is independent and credentials are refreshed while the host
-        # starts; this handles slow startup and packaged managers using --data-dir.
-        def read_secret(filename: str) -> str:
-            try:
-                value = (DATA / filename).read_text(encoding="utf-8").strip()
-                return value if value else ""
-            except (OSError, UnicodeError):
-                return ""
-
-        vault = read_secret("vault-passphrase.txt")
-        pairing = read_secret("pairing-code.txt").upper()
-        master = read_secret("master-key.txt")
-        self.vault_phrase = vault
-        self.pairing_code = pairing
-        self.master_key = master
-        self.vault_phrase_var.set(vault or "Waiting for host to create vault phrase…")
-        self.pairing_code_var.set(pairing or "Waiting for host to create pairing code…")
-        self.master_key_var.set(master or "Waiting for host to create master key…")
-        if vault and pairing and master:
-            self.credentials.set("All host credentials loaded. Use the matching Copy button.")
-        else:
-            missing = []
-            if not vault: missing.append("vault phrase")
-            if not pairing: missing.append("pairing code")
-            if not master: missing.append("master key")
-            self.credentials.set("Waiting for: " + ", ".join(missing) + ". Credentials are read from: " + str(DATA))
+        if not (DATA / "vault-passphrase.txt").exists():
+            self.credentials.set(
+                "Start the server once to generate the vault phrase, master key, and pairing code.\n"
+                "They are stored only in the data folder next to this app."
+            )
+            return
+        try:
+            vault = (DATA / "vault-passphrase.txt").read_text(encoding="utf-8").strip()
+            pairing = (DATA / "pairing-code.txt").read_text(encoding="utf-8").strip()
+            master_file = DATA / "master-key.txt"
+            master = master_file.read_text(encoding="utf-8").strip() if master_file.exists() else ""
+            self.vault_phrase = vault
+            self.pairing_code = pairing
+            lines = [f"Vault phrase: {vault}"]
+            if master:
+                lines.append(f"Master key: {master}")
+            lines.append(f"Pairing code: {pairing}")
+            self.credentials.set("\n".join(lines))
+        except OSError:
+            self.credentials.set("Credentials are being initialized. Wait a moment, then check again.")
 
     def stop_server(self) -> None:
         if not self.process or self.process.poll() is not None:
