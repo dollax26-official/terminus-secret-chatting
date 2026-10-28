@@ -1,7 +1,7 @@
 /* Terminus Secrets — offline app shell.
    Never caches API responses: ciphertext stays on the host, not in the SW. */
 
-const CACHE = "terminus-shell-v1";
+const CACHE = "terminus-shell-v3-2026-10-28";
 const SHELL = [
   "./",
   "./index.html",
