@@ -520,7 +520,13 @@
       const first = state.rooms.find((room) => room.kind !== "dm" && room.server_id === state.activeServerId);
       if (first) selectRoom(first.id); else renderRooms();
     });
-    $("#createServerBtn").addEventListener("click", createServer);
+    $("#createServerBtn").addEventListener("click", () => {
+      if (!state.hostAdmin) {
+        toast("Only a device paired with the host master key can create servers.", "error");
+        return;
+      }
+      createServer();
+    });
     $("#joinServerBtn").addEventListener("click", joinServer);
     $("#inviteServerBtn").addEventListener("click", showServerInvite);
     $("#manageServerBtn").addEventListener("click", manageServer);
@@ -842,6 +848,7 @@
     state.servers = data.servers || state.servers;
     state.serverMembers = data.server_members || state.serverMembers;
     state.hostAdmin = Boolean(data.host_admin);
+    updateHostAdminUi();
     if (!state.activeServerId || !state.servers.some((server) => server.id === state.activeServerId)) {
       state.activeServerId = state.servers[0]?.id || "";
       if (state.activeServerId) localStorage.setItem("ts.server", state.activeServerId);
@@ -1241,8 +1248,20 @@
           const player = el("audio", "voice-player");
           player.controls = true;
           player.preload = "metadata";
-          player.src = dataUrl;
+          // Blob URLs avoid the browser's data:-URL media safety check and
+          // keep playback memory bounded for longer voice notes.
+          const audioBlob = new Blob([b64ToBytes(file.data)], { type: file.type || "audio/webm" });
+          const audioUrl = URL.createObjectURL(audioBlob);
+          player.src = audioUrl;
           player.setAttribute("aria-label", file.name || "Voice message");
+          player.addEventListener("error", () => {
+            player.hidden = true;
+            const download = el("a", "attachment-link", "Download voice message");
+            download.href = audioUrl;
+            download.download = file.name || "voice-message";
+            bubble.append(download);
+            bubble.append(el("div", "voice-label", "Playback is not supported on this device. Download the note to listen."));
+          }, { once: true });
           bubble.append(player);
           const meta = el("div", "voice-label", file.name || "Voice message");
           bubble.append(meta);
@@ -1838,7 +1857,24 @@
     }
   }
 
-  async function createServer() { openActionDialog("create-server"); }
+  function updateHostAdminUi() {
+    const button = $("#createServerBtn");
+    if (!button) return;
+    button.disabled = !state.hostAdmin;
+    const label = state.hostAdmin
+      ? "Create server"
+      : "Only a device paired with the host master key can create servers";
+    button.title = label;
+    button.setAttribute("aria-label", label);
+  }
+
+  async function createServer() {
+    if (!state.hostAdmin) {
+      toast("Only a device paired with the host master key can create servers.", "error");
+      return;
+    }
+    openActionDialog("create-server");
+  }
   async function joinServer() { openActionDialog("join-server"); }
 
   function showServerInvite() {
@@ -2579,7 +2615,13 @@
     }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
-      const mime = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus"].find((type) => MediaRecorder.isTypeSupported(type)) || "";
+      // Prefer AAC/MP4 so notes recorded on Android/Windows also play on iPhone.
+      const mime = [
+        "audio/mp4;codecs=mp4a.40.2",
+        "audio/mp4",
+        "audio/webm;codecs=opus",
+        "audio/ogg;codecs=opus",
+      ].find((type) => MediaRecorder.isTypeSupported(type)) || "";
       const recorder = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 24000 } : { audioBitsPerSecond: 24000 });
       state.voiceRecorder = recorder;
       state.voiceChunks = [];
@@ -2596,7 +2638,7 @@
         if (!blob.size) return;
         if (blob.size > 43000) { toast("Voice note exceeded the encrypted message size limit. Try a shorter recording.", "error"); return; }
         const data = bytesToB64(new Uint8Array(await blob.arrayBuffer()));
-        const ext = blob.type.includes("ogg") ? "ogg" : "webm";
+        const ext = blob.type.includes("mp4") ? "m4a" : blob.type.includes("ogg") ? "ogg" : "webm";
         try {
           await sendText("__TS_ATTACHMENT_V1__:" + JSON.stringify({ name: "voice-message." + ext, type: blob.type || "audio/webm", data }), null);
           toast("Voice message sent.");
