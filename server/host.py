@@ -880,7 +880,7 @@ class Handler(BaseHTTPRequestHandler):
         if ext == ".html":
             headers["Content-Security-Policy"] = (
                 "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
-                "img-src 'self' data:; connect-src 'self'; font-src 'self'; "
+                "img-src 'self' data:; media-src 'self' data: blob:; connect-src 'self'; font-src 'self'; "
                 "object-src 'none'; base-uri 'none'; frame-ancestors 'none'; "
                 "worker-src 'self'"
             )
