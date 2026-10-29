@@ -37,6 +37,7 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.webkit.WebChromeClient;
 import android.webkit.PermissionRequest;
+import android.webkit.ValueCallback;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -82,6 +83,7 @@ public class MainActivity extends Activity {
     private static final String NOTIFICATION_CHANNEL = "terminus_messages";
     private static final int NOTIFICATION_PERMISSION_REQUEST = 4701;
     private static final int MEDIA_PERMISSION_REQUEST = 4702;
+    private static final int FILE_CHOOSER_REQUEST = 4703;
 
     private static final int BG = Color.parseColor("#06090E");
     private static final int PANEL = Color.parseColor("#0C121A");
@@ -102,6 +104,7 @@ public class MainActivity extends Activity {
     private String pin;
     private PermissionRequest pendingPermissionRequest;
     private String[] pendingMediaResources = new String[0];
+    private ValueCallback<Uri[]> pendingFileChooser;
     private String pendingNotificationRoom = "";
 
     @Override
@@ -342,7 +345,7 @@ public class MainActivity extends Activity {
         settings.setDomStorageEnabled(true);
         settings.setDatabaseEnabled(true);
         settings.setAllowFileAccess(false);
-        settings.setAllowContentAccess(false);
+        settings.setAllowContentAccess(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setSupportZoom(false);
         settings.setBuiltInZoomControls(false);
@@ -402,6 +405,26 @@ public class MainActivity extends Activity {
                     pendingPermissionRequest = null;
                     pendingMediaResources = new String[0];
                 }
+            }
+
+            @Override
+            public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback,
+                                             FileChooserParams params) {
+                if (pendingFileChooser != null) pendingFileChooser.onReceiveValue(null);
+                pendingFileChooser = callback;
+                Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+                intent.addCategory(Intent.CATEGORY_OPENABLE);
+                intent.setType("*/*");
+                intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+                try {
+                    startActivityForResult(Intent.createChooser(intent, "Attach file"), FILE_CHOOSER_REQUEST);
+                } catch (ActivityNotFoundException error) {
+                    pendingFileChooser = null;
+                    callback.onReceiveValue(null);
+                    Toast.makeText(MainActivity.this, "No file picker is available.", Toast.LENGTH_SHORT).show();
+                    return false;
+                }
+                return true;
             }
         });
         webView.addJavascriptInterface(new NativeNotifications(), "TerminusNative");
@@ -547,6 +570,32 @@ public class MainActivity extends Activity {
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == FILE_CHOOSER_REQUEST) {
+            if (pendingFileChooser == null) {
+                super.onActivityResult(requestCode, resultCode, data);
+                return;
+            }
+            Uri[] results = null;
+            if (resultCode == RESULT_OK && data != null) {
+                ClipData clip = data.getClipData();
+                if (clip != null && clip.getItemCount() > 0) {
+                    results = new Uri[clip.getItemCount()];
+                    for (int i = 0; i < clip.getItemCount(); i++) {
+                        results[i] = clip.getItemAt(i).getUri();
+                    }
+                } else if (data.getData() != null) {
+                    results = new Uri[]{data.getData()};
+                }
+            }
+            pendingFileChooser.onReceiveValue(results);
+            pendingFileChooser = null;
+            return;
+        }
+        super.onActivityResult(requestCode, resultCode, data);
     }
 
     @Override
